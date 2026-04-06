@@ -38,7 +38,8 @@ hostStart.addEventListener('click', async () => {
   hostPeerId.style.display = 'block';
   hostStart.style.display = 'none';
   hostStop.style.display = 'inline-block';
-  hostStatus.textContent = 'Hosting — share the peer ID with the viewer';
+  const modeLabel = response.captureMode === 'screencast' ? ' (CDP screencast)' : '';
+  hostStatus.textContent = 'Hosting' + modeLabel + ' — share the peer ID with the viewer';
   hostStatus.className = 'status ok';
 });
 

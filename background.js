@@ -1,11 +1,15 @@
 // Vipsee service worker — orchestrates host mode
+// Supports two capture modes:
+//   'tabCapture' — chrome.tabCapture (requires user gesture from popup)
+//   'screencast' — CDP Page.startScreencast (works programmatically)
 
 let hostState = {
   hosting: false,
   peerId: null,
   capturedTabId: null,
   debuggerAttached: false,
-  viewerConnected: false
+  viewerConnected: false,
+  captureMode: null // 'tabCapture' | 'screencast'
 };
 
 // --- Message handling ---
@@ -13,6 +17,11 @@ let hostState = {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'startHosting') {
     handleStartHosting().then(sendResponse);
+    return true;
+  }
+  if (msg.action === 'startHostingCDP') {
+    // Explicit CDP screencast mode (for programmatic/agent use)
+    handleStartHostingCDP(msg.tabId).then(sendResponse);
     return true;
   }
   if (msg.action === 'stopHosting') {
@@ -23,7 +32,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({
       hosting: hostState.hosting,
       peerId: hostState.peerId,
-      viewerConnected: hostState.viewerConnected
+      viewerConnected: hostState.viewerConnected,
+      captureMode: hostState.captureMode
     });
     return false;
   }
@@ -33,26 +43,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false;
   }
   if (msg.action === 'viewerConnected') {
-    // Must be async — await debugger attach before input can work
     (async () => {
       hostState.viewerConnected = true;
-      console.log('[VIPSEE:bg] Viewer connected, attaching debugger to tab', hostState.capturedTabId);
-      await attachDebugger(hostState.capturedTabId);
+      console.log('[VIPSEE:bg] Viewer connected, mode:', hostState.captureMode);
+      // In screencast mode, debugger is already attached (needed for screencast).
+      // In tabCapture mode, attach now for input injection.
+      if (hostState.captureMode === 'tabCapture') {
+        await attachDebugger(hostState.capturedTabId);
+      }
       console.log('[VIPSEE:bg] Debugger attached:', hostState.debuggerAttached);
       sendTabListToViewer();
       sendResponse({ ok: true });
     })();
-    return true; // keep sendResponse channel open for async
+    return true;
   }
   if (msg.action === 'viewerDisconnected') {
     hostState.viewerConnected = false;
-    console.log('[VIPSEE:bg] Viewer disconnected, detaching debugger');
-    detachDebugger(hostState.capturedTabId);
+    console.log('[VIPSEE:bg] Viewer disconnected');
+    // In tabCapture mode, detach debugger (it was only for input).
+    // In screencast mode, keep debugger attached (needed for screencast).
+    if (hostState.captureMode === 'tabCapture') {
+      detachDebugger(hostState.capturedTabId);
+    }
     return false;
   }
   if (msg.action === 'inputEvent') {
-    console.log('[VIPSEE:bg] Received inputEvent:', msg.event.type, msg.event.action,
-      msg.event.type === 'mouse' ? `(${msg.event.x},${msg.event.y})` : msg.event.key);
     handleInputEvent(msg.event);
     return false;
   }
@@ -64,7 +79,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return false;
 });
 
-// --- Host lifecycle ---
+// --- Host lifecycle: tabCapture mode ---
 
 async function handleStartHosting() {
   try {
@@ -74,34 +89,116 @@ async function handleStartHosting() {
     console.log('[VIPSEE:bg] Starting host on tab', tab.id, tab.url);
     hostState.capturedTabId = tab.id;
 
-    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
+    // Try tabCapture first (requires user gesture)
+    try {
+      const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
 
-    await ensureOffscreenDocument();
+      await ensureOffscreenDocument();
+      await chrome.runtime.sendMessage({
+        action: 'offscreen:startHost',
+        streamId,
+        tabId: tab.id
+      });
 
-    await chrome.runtime.sendMessage({
-      action: 'offscreen:startHost',
-      streamId,
-      tabId: tab.id
-    });
+      const peerId = await waitForPeerId();
+      hostState.hosting = true;
+      hostState.peerId = peerId;
+      hostState.captureMode = 'tabCapture';
+      setupTabListeners();
 
-    const peerId = await waitForPeerId();
-
-    hostState.hosting = true;
-    hostState.peerId = peerId;
-
-    // Start listening for tab changes
-    setupTabListeners();
-
-    console.log('[VIPSEE:bg] Host started, peerId:', peerId);
-    return { peerId };
+      console.log('[VIPSEE:bg] Host started (tabCapture), peerId:', peerId);
+      return { peerId, captureMode: 'tabCapture' };
+    } catch (tabCaptureErr) {
+      console.warn('[VIPSEE:bg] tabCapture failed, falling back to CDP screencast:', tabCaptureErr.message);
+      return await startScreencastMode(tab.id);
+    }
   } catch (err) {
     console.error('[VIPSEE:bg] startHosting error:', err);
     return { error: err.message };
   }
 }
 
+// --- Host lifecycle: CDP screencast mode ---
+
+async function handleStartHostingCDP(tabId) {
+  try {
+    if (!tabId) {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab) return { error: 'No active tab found' };
+      tabId = tab.id;
+    }
+    console.log('[VIPSEE:bg] Starting host (explicit CDP mode) on tab', tabId);
+    return await startScreencastMode(tabId);
+  } catch (err) {
+    console.error('[VIPSEE:bg] startHostingCDP error:', err);
+    return { error: err.message };
+  }
+}
+
+async function startScreencastMode(tabId) {
+  hostState.capturedTabId = tabId;
+
+  // Attach debugger (needed for screencast AND input)
+  await attachDebugger(tabId);
+  if (!hostState.debuggerAttached) {
+    return { error: 'Failed to attach debugger for screencast' };
+  }
+
+  // Get page dimensions for canvas sizing
+  const layoutMetrics = await chrome.debugger.sendCommand(
+    { tabId }, 'Page.getLayoutMetrics'
+  );
+  const width = Math.round(layoutMetrics.cssLayoutViewport.clientWidth);
+  const height = Math.round(layoutMetrics.cssLayoutViewport.clientHeight);
+
+  console.log('[VIPSEE:bg] Page dimensions for screencast:', width, 'x', height);
+
+  // Set up offscreen document in screencast/canvas mode
+  await ensureOffscreenDocument();
+  await chrome.runtime.sendMessage({
+    action: 'offscreen:startHostScreencast',
+    width,
+    height
+  });
+
+  // Start CDP screencast
+  await chrome.debugger.sendCommand({ tabId }, 'Page.startScreencast', {
+    format: 'jpeg',
+    quality: 80,
+    maxWidth: width,
+    maxHeight: height
+  });
+
+  console.log('[VIPSEE:bg] CDP screencast started');
+
+  const peerId = await waitForPeerId();
+  hostState.hosting = true;
+  hostState.peerId = peerId;
+  hostState.captureMode = 'screencast';
+  setupTabListeners();
+
+  console.log('[VIPSEE:bg] Host started (screencast), peerId:', peerId);
+  return { peerId, captureMode: 'screencast' };
+}
+
+async function stopScreencast() {
+  if (hostState.capturedTabId && hostState.debuggerAttached) {
+    try {
+      await chrome.debugger.sendCommand(
+        { tabId: hostState.capturedTabId }, 'Page.stopScreencast'
+      );
+    } catch (e) { /* may already be stopped */ }
+  }
+}
+
+// --- Stop hosting (both modes) ---
+
 async function handleStopHosting() {
   teardownTabListeners();
+
+  if (hostState.captureMode === 'screencast') {
+    await stopScreencast();
+  }
 
   try {
     await chrome.runtime.sendMessage({ action: 'offscreen:stopHost' });
@@ -118,7 +215,8 @@ async function handleStopHosting() {
     peerId: null,
     capturedTabId: null,
     debuggerAttached: false,
-    viewerConnected: false
+    viewerConnected: false,
+    captureMode: null
   };
 
   return { ok: true };
@@ -154,14 +252,33 @@ async function ensureOffscreenDocument() {
   });
 }
 
-// Send a message to the viewer via the offscreen doc's data channel
 function sendToViewer(message) {
   if (!hostState.viewerConnected) return;
   chrome.runtime.sendMessage({
     action: 'offscreen:sendToViewer',
     message
-  }).catch(() => {}); // offscreen may be gone
+  }).catch(() => {});
 }
+
+// --- CDP screencast frame handling ---
+
+chrome.debugger.onEvent.addListener((source, method, params) => {
+  if (source.tabId !== hostState.capturedTabId) return;
+  if (method !== 'Page.screencastFrame') return;
+
+  // Forward frame to offscreen document for canvas rendering
+  chrome.runtime.sendMessage({
+    action: 'offscreen:screencastFrame',
+    data: params.data,
+    sessionId: params.sessionId,
+    metadata: params.metadata
+  }).catch(() => {});
+
+  // Ack the frame so CDP sends the next one
+  chrome.debugger.sendCommand(source, 'Page.screencastFrameAck', {
+    sessionId: params.sessionId
+  }).catch(() => {});
+});
 
 // --- Tab management (Phase 3) ---
 
@@ -188,7 +305,6 @@ function onTabUpdated(tabId, changeInfo, tab) {
         url: tab.url || '',
         title: tab.title || ''
       });
-      // Re-inject cursor after page navigation completes
       if (changeInfo.status === 'complete') {
         onTabNavigated(tabId);
       }
@@ -200,6 +316,9 @@ function onTabUpdated(tabId, changeInfo, tab) {
 function onTabRemoved(tabId) {
   if (!hostState.hosting || !hostState.viewerConnected) return;
   if (tabId === hostState.capturedTabId) {
+    if (hostState.captureMode === 'screencast') {
+      stopScreencast();
+    }
     hostState.capturedTabId = null;
     hostState.debuggerAttached = false;
     sendToViewer({ type: 'status', capturing: false, tabId: null });
@@ -210,10 +329,8 @@ function onTabRemoved(tabId) {
 function onTabCreated(tab) {
   if (!hostState.hosting || !hostState.viewerConnected) return;
   sendTabListToViewer();
-  // Auto-follow new tabs opened from the captured tab (e.g. target="_blank" links)
   if (tab && tab.openerTabId === hostState.capturedTabId) {
     console.log('[VIPSEE:bg] New tab opened from captured tab, auto-switching to', tab.id);
-    // Small delay to let the tab finish loading enough to capture
     setTimeout(() => switchTab(tab.id), 300);
   }
 }
@@ -266,21 +383,15 @@ async function handleControlEvent(evt) {
         break;
 
       case 'goBack':
-        if (hostState.capturedTabId) {
-          await chrome.tabs.goBack(hostState.capturedTabId);
-        }
+        if (hostState.capturedTabId) await chrome.tabs.goBack(hostState.capturedTabId);
         break;
 
       case 'goForward':
-        if (hostState.capturedTabId) {
-          await chrome.tabs.goForward(hostState.capturedTabId);
-        }
+        if (hostState.capturedTabId) await chrome.tabs.goForward(hostState.capturedTabId);
         break;
 
       case 'reload':
-        if (hostState.capturedTabId) {
-          await chrome.tabs.reload(hostState.capturedTabId);
-        }
+        if (hostState.capturedTabId) await chrome.tabs.reload(hostState.capturedTabId);
         break;
 
       case 'listTabs':
@@ -307,20 +418,54 @@ async function handleControlEvent(evt) {
 async function switchTab(tabId) {
   if (!tabId) return;
 
-  await detachDebugger(hostState.capturedTabId);
-  await chrome.tabs.update(tabId, { active: true });
+  if (hostState.captureMode === 'screencast') {
+    // Stop screencast on old tab
+    await stopScreencast();
+    await detachDebugger(hostState.capturedTabId);
 
-  const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+    // Activate and capture new tab
+    await chrome.tabs.update(tabId, { active: true });
+    hostState.capturedTabId = tabId;
 
-  hostState.capturedTabId = tabId;
+    await attachDebugger(tabId);
 
-  await chrome.runtime.sendMessage({
-    action: 'offscreen:switchStream',
-    streamId,
-    tabId
-  });
+    // Get new page dimensions
+    const layoutMetrics = await chrome.debugger.sendCommand(
+      { tabId }, 'Page.getLayoutMetrics'
+    );
+    const width = Math.round(layoutMetrics.cssLayoutViewport.clientWidth);
+    const height = Math.round(layoutMetrics.cssLayoutViewport.clientHeight);
 
-  await attachDebugger(tabId);
+    // Resize canvas in offscreen doc
+    await chrome.runtime.sendMessage({
+      action: 'offscreen:screencastResize',
+      width,
+      height
+    });
+
+    // Restart screencast on new tab
+    await chrome.debugger.sendCommand({ tabId }, 'Page.startScreencast', {
+      format: 'jpeg',
+      quality: 80,
+      maxWidth: width,
+      maxHeight: height
+    });
+  } else {
+    // tabCapture mode
+    await detachDebugger(hostState.capturedTabId);
+    await chrome.tabs.update(tabId, { active: true });
+
+    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+    hostState.capturedTabId = tabId;
+
+    await chrome.runtime.sendMessage({
+      action: 'offscreen:switchStream',
+      streamId,
+      tabId
+    });
+
+    await attachDebugger(tabId);
+  }
 
   const tab = await chrome.tabs.get(tabId);
   sendToViewer({
@@ -360,7 +505,6 @@ async function closeTab(tabId) {
 async function attachDebugger(tabId) {
   if (!tabId || hostState.debuggerAttached) return;
   try {
-    // Log what we're attaching to so we can spot chrome:// / extension page issues
     const tab = await chrome.tabs.get(tabId);
     console.log('[VIPSEE:bg] Attaching debugger to tab', tabId, '| url:', tab.url);
 
@@ -373,7 +517,6 @@ async function attachDebugger(tabId) {
     hostState.debuggerAttached = true;
     console.log('[VIPSEE:bg] Debugger attached successfully to tab', tabId);
 
-    // Inject cursor overlay into the host page
     await injectCursorOverlay(tabId);
   } catch (e) {
     console.error('[VIPSEE:bg] Failed to attach debugger to tab', tabId, ':', e.message || e);
@@ -390,14 +533,12 @@ async function detachDebugger(tabId) {
 }
 
 chrome.debugger.onDetach.addListener((source, reason) => {
-  if (source.tabId === hostState.capturedTabId) {
-    console.warn('[VIPSEE:bg] Debugger detached externally, reason:', reason);
-    hostState.debuggerAttached = false;
+  if (source.tabId !== hostState.capturedTabId) return;
+  console.warn('[VIPSEE:bg] Debugger detached externally, reason:', reason);
+  hostState.debuggerAttached = false;
 
-    // Auto-reattach with retries after navigation or target_closed
-    if (hostState.hosting && hostState.viewerConnected) {
-      retryAttachDebugger(5, 500);
-    }
+  if (hostState.hosting && hostState.viewerConnected) {
+    retryAttachDebugger(5, 500);
   }
 });
 
@@ -408,26 +549,35 @@ let reattachInProgress = false;
 async function retryAttachDebugger(maxRetries, delayMs) {
   if (reattachInProgress) return;
   reattachInProgress = true;
-  
+
   for (let i = 0; i < maxRetries; i++) {
     if (hostState.debuggerAttached) break;
     if (!hostState.hosting || !hostState.viewerConnected) break;
-    
+
     await new Promise(r => setTimeout(r, delayMs));
     console.log(`[VIPSEE:bg] Reattach attempt ${i + 1}/${maxRetries}...`);
-    
-    // Check if captured tab still exists
+
     try {
       const tab = await chrome.tabs.get(hostState.capturedTabId);
       if (tab) {
         await attachDebugger(tab.id);
         if (hostState.debuggerAttached) {
+          // If in screencast mode, restart the screencast
+          if (hostState.captureMode === 'screencast') {
+            const layoutMetrics = await chrome.debugger.sendCommand(
+              { tabId: tab.id }, 'Page.getLayoutMetrics'
+            );
+            const w = Math.round(layoutMetrics.cssLayoutViewport.clientWidth);
+            const h = Math.round(layoutMetrics.cssLayoutViewport.clientHeight);
+            await chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.startScreencast', {
+              format: 'jpeg', quality: 80, maxWidth: w, maxHeight: h
+            });
+          }
           console.log('[VIPSEE:bg] Reattach succeeded on attempt', i + 1);
           break;
         }
       }
     } catch (e) {
-      // Tab is gone — try the active tab
       console.log('[VIPSEE:bg] Original tab gone, switching to active tab');
       try {
         const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -439,11 +589,10 @@ async function retryAttachDebugger(maxRetries, delayMs) {
         console.error('[VIPSEE:bg] Reattach attempt', i + 1, 'failed:', e2.message);
       }
     }
-    
-    // Increase delay for next attempt
+
     delayMs = Math.min(delayMs * 1.5, 3000);
   }
-  
+
   reattachInProgress = false;
   if (!hostState.debuggerAttached) {
     console.error('[VIPSEE:bg] Failed to reattach debugger after', maxRetries, 'attempts');
@@ -480,20 +629,17 @@ async function injectCursorOverlay(tabId) {
 }
 
 function updateCursorPosition(tabId, x, y) {
-  // Throttle: update every 3rd move to reduce Runtime.evaluate overhead
   cursorMoveCount++;
   if (cursorMoveCount % 3 !== 0) return;
 
   const expr = `(function(){var c=document.getElementById('__vipsee_cursor__');if(c)c.style.transform='translate(${x}px,${y}px)'})()`;
   chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', {
     expression: expr
-  }).catch(() => {}); // non-critical, suppress errors
+  }).catch(() => {});
 }
 
-// Re-inject cursor after page navigation
 function onTabNavigated(tabId) {
   if (tabId === hostState.capturedTabId && hostState.debuggerAttached) {
-    // Small delay to let the new page load
     setTimeout(() => injectCursorOverlay(tabId), 500);
   }
 }
@@ -507,7 +653,6 @@ function handleInputEvent(evt) {
     return;
   }
   if (!hostState.debuggerAttached) {
-    // Trigger reattach on first dropped input, don't spam the log
     if (!reattachInProgress) {
       console.warn('[VIPSEE:bg] Input dropped: debugger not attached, triggering reattach');
       retryAttachDebugger(5, 300);
@@ -558,7 +703,6 @@ function dispatchMouseEvent(tabId, evt) {
     console.log('[VIPSEE:bg] Dispatching mouse', evt.action, 'at', evt.x, evt.y, 'button:', params.button);
   }
 
-  // Update injected cursor position on moves
   if (evt.action === 'move') {
     updateCursorPosition(tabId, evt.x, evt.y);
   }
