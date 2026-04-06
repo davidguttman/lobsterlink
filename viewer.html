@@ -80,14 +80,17 @@
     #connection-status.error { background: #4a1a1a; color: #f05555; }
 
     #video-container {
-      height: calc(100% - 40px);
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      position: absolute;
+      top: 40px;
+      left: 0;
+      right: 0;
+      bottom: 0;
       background: #000;
-      position: relative;
     }
     #remote-video {
+      position: absolute;
+      top: 0;
+      left: 0;
       width: 100%;
       height: 100%;
       object-fit: contain;
