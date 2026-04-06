@@ -207,9 +207,15 @@ function onTabRemoved(tabId) {
   sendTabListToViewer();
 }
 
-function onTabCreated() {
+function onTabCreated(tab) {
   if (!hostState.hosting || !hostState.viewerConnected) return;
   sendTabListToViewer();
+  // Auto-follow new tabs opened from the captured tab (e.g. target="_blank" links)
+  if (tab && tab.openerTabId === hostState.capturedTabId) {
+    console.log('[VIPSEE:bg] New tab opened from captured tab, auto-switching to', tab.id);
+    // Small delay to let the tab finish loading enough to capture
+    setTimeout(() => switchTab(tab.id), 300);
+  }
 }
 
 function setupTabListeners() {
