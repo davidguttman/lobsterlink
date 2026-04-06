@@ -394,33 +394,61 @@ chrome.debugger.onDetach.addListener((source, reason) => {
     console.warn('[VIPSEE:bg] Debugger detached externally, reason:', reason);
     hostState.debuggerAttached = false;
 
-    // Auto-reattach after navigation or target_closed
+    // Auto-reattach with retries after navigation or target_closed
     if (hostState.hosting && hostState.viewerConnected) {
-      console.log('[VIPSEE:bg] Attempting debugger re-attach...');
-      setTimeout(async () => {
-        // The tab may have navigated — check if it still exists
-        try {
-          const tab = await chrome.tabs.get(hostState.capturedTabId);
-          if (tab) {
-            await attachDebugger(tab.id);
-            return;
-          }
-        } catch (e) {
-          // Tab is gone — find the now-active tab and switch to it
-          console.log('[VIPSEE:bg] Original tab gone, switching to active tab');
-        }
-        try {
-          const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-          if (activeTab) {
-            await switchTab(activeTab.id);
-          }
-        } catch (e) {
-          console.error('[VIPSEE:bg] Failed to recover after debugger detach:', e);
-        }
-      }, 500);
+      retryAttachDebugger(5, 500);
     }
   }
 });
+
+// --- Debugger reattach with retries ---
+
+let reattachInProgress = false;
+
+async function retryAttachDebugger(maxRetries, delayMs) {
+  if (reattachInProgress) return;
+  reattachInProgress = true;
+  
+  for (let i = 0; i < maxRetries; i++) {
+    if (hostState.debuggerAttached) break;
+    if (!hostState.hosting || !hostState.viewerConnected) break;
+    
+    await new Promise(r => setTimeout(r, delayMs));
+    console.log(`[VIPSEE:bg] Reattach attempt ${i + 1}/${maxRetries}...`);
+    
+    // Check if captured tab still exists
+    try {
+      const tab = await chrome.tabs.get(hostState.capturedTabId);
+      if (tab) {
+        await attachDebugger(tab.id);
+        if (hostState.debuggerAttached) {
+          console.log('[VIPSEE:bg] Reattach succeeded on attempt', i + 1);
+          break;
+        }
+      }
+    } catch (e) {
+      // Tab is gone — try the active tab
+      console.log('[VIPSEE:bg] Original tab gone, switching to active tab');
+      try {
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (activeTab) {
+          await switchTab(activeTab.id);
+          break;
+        }
+      } catch (e2) {
+        console.error('[VIPSEE:bg] Reattach attempt', i + 1, 'failed:', e2.message);
+      }
+    }
+    
+    // Increase delay for next attempt
+    delayMs = Math.min(delayMs * 1.5, 3000);
+  }
+  
+  reattachInProgress = false;
+  if (!hostState.debuggerAttached) {
+    console.error('[VIPSEE:bg] Failed to reattach debugger after', maxRetries, 'attempts');
+  }
+}
 
 // --- Remote cursor overlay (injected into host page via CDP) ---
 
@@ -479,7 +507,11 @@ function handleInputEvent(evt) {
     return;
   }
   if (!hostState.debuggerAttached) {
-    console.warn('[VIPSEE:bg] Input dropped: debugger not attached');
+    // Trigger reattach on first dropped input, don't spam the log
+    if (!reattachInProgress) {
+      console.warn('[VIPSEE:bg] Input dropped: debugger not attached, triggering reattach');
+      retryAttachDebugger(5, 300);
+    }
     return;
   }
 
