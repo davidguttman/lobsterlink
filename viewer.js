@@ -102,6 +102,7 @@ function connect(hostPeerId) {
 
     mediaCall.on('stream', (remoteStream) => {
       video.srcObject = remoteStream;
+      console.log('[VIPSEE:viewer] Remote stream received, tracks:', remoteStream.getTracks().length);
     });
 
     mediaCall.on('close', () => {
@@ -488,7 +489,14 @@ video.addEventListener('keyup', (e) => {
 
 // Focus video on click for keyboard capture
 video.addEventListener('click', () => video.focus());
-video.addEventListener('playing', () => video.focus());
+video.addEventListener('playing', () => {
+  video.focus();
+  const container = document.getElementById('video-container');
+  console.log('[VIPSEE:viewer] Video playing — intrinsic:', video.videoWidth, 'x', video.videoHeight,
+    '| element:', video.offsetWidth, 'x', video.offsetHeight,
+    '| container:', container.offsetWidth, 'x', container.offsetHeight,
+    '| computed:', getComputedStyle(video).width, getComputedStyle(video).height);
+});
 
 // --- Clean disconnect on page unload ---
 
