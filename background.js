@@ -33,22 +33,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false;
   }
   if (msg.action === 'viewerConnected') {
-    hostState.viewerConnected = true;
-    attachDebugger(hostState.capturedTabId);
-    // Send initial tab list to viewer
-    sendTabListToViewer();
-    return false;
+    // Must be async — await debugger attach before input can work
+    (async () => {
+      hostState.viewerConnected = true;
+      console.log('[VIPSEE:bg] Viewer connected, attaching debugger to tab', hostState.capturedTabId);
+      await attachDebugger(hostState.capturedTabId);
+      console.log('[VIPSEE:bg] Debugger attached:', hostState.debuggerAttached);
+      sendTabListToViewer();
+      sendResponse({ ok: true });
+    })();
+    return true; // keep sendResponse channel open for async
   }
   if (msg.action === 'viewerDisconnected') {
     hostState.viewerConnected = false;
+    console.log('[VIPSEE:bg] Viewer disconnected, detaching debugger');
     detachDebugger(hostState.capturedTabId);
     return false;
   }
   if (msg.action === 'inputEvent') {
+    console.log('[VIPSEE:bg] Received inputEvent:', msg.event.type, msg.event.action,
+      msg.event.type === 'mouse' ? `(${msg.event.x},${msg.event.y})` : msg.event.key);
     handleInputEvent(msg.event);
     return false;
   }
   if (msg.action === 'controlEvent') {
+    console.log('[VIPSEE:bg] Received controlEvent:', msg.event.type);
     handleControlEvent(msg.event);
     return false;
   }
@@ -62,6 +71,7 @@ async function handleStartHosting() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab) return { error: 'No active tab found' };
 
+    console.log('[VIPSEE:bg] Starting host on tab', tab.id, tab.url);
     hostState.capturedTabId = tab.id;
 
     const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
@@ -82,8 +92,10 @@ async function handleStartHosting() {
     // Start listening for tab changes
     setupTabListeners();
 
+    console.log('[VIPSEE:bg] Host started, peerId:', peerId);
     return { peerId };
   } catch (err) {
+    console.error('[VIPSEE:bg] startHosting error:', err);
     return { error: err.message };
   }
 }
@@ -155,7 +167,6 @@ function sendToViewer(message) {
 
 function onTabActivated(activeInfo) {
   if (!hostState.hosting || !hostState.viewerConnected) return;
-  // When user activates a tab on the host, notify viewer
   chrome.tabs.get(activeInfo.tabId, (tab) => {
     if (chrome.runtime.lastError) return;
     sendToViewer({
@@ -169,9 +180,7 @@ function onTabActivated(activeInfo) {
 
 function onTabUpdated(tabId, changeInfo, tab) {
   if (!hostState.hosting || !hostState.viewerConnected) return;
-  // Notify viewer when tab title/url changes (for any tab, so tab list stays fresh)
   if (changeInfo.title || changeInfo.url || changeInfo.status === 'complete') {
-    // If this is the captured tab, send tabChanged
     if (tabId === hostState.capturedTabId) {
       sendToViewer({
         type: 'tabChanged',
@@ -180,14 +189,12 @@ function onTabUpdated(tabId, changeInfo, tab) {
         title: tab.title || ''
       });
     }
-    // Always refresh the full tab list so dropdown stays current
     sendTabListToViewer();
   }
 }
 
 function onTabRemoved(tabId) {
   if (!hostState.hosting || !hostState.viewerConnected) return;
-  // If the captured tab was closed, we have a problem — notify viewer
   if (tabId === hostState.capturedTabId) {
     hostState.capturedTabId = null;
     hostState.debuggerAttached = false;
@@ -229,7 +236,7 @@ async function sendTabListToViewer() {
       }))
     });
   } catch (e) {
-    console.error('Failed to send tab list:', e);
+    console.error('[VIPSEE:bg] Failed to send tab list:', e);
   }
 }
 
@@ -283,35 +290,28 @@ async function handleControlEvent(evt) {
         break;
     }
   } catch (err) {
-    console.error('Control event error:', err, evt);
+    console.error('[VIPSEE:bg] Control event error:', err, evt);
   }
 }
 
 async function switchTab(tabId) {
   if (!tabId) return;
 
-  // Detach debugger from old tab
   await detachDebugger(hostState.capturedTabId);
-
-  // Activate the new tab
   await chrome.tabs.update(tabId, { active: true });
 
-  // Get new capture stream
   const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
 
   hostState.capturedTabId = tabId;
 
-  // Tell offscreen to switch streams
   await chrome.runtime.sendMessage({
     action: 'offscreen:switchStream',
     streamId,
     tabId
   });
 
-  // Re-attach debugger
   await attachDebugger(tabId);
 
-  // Send updated state
   const tab = await chrome.tabs.get(tabId);
   sendToViewer({
     type: 'tabChanged',
@@ -329,8 +329,6 @@ async function createNewTab(url) {
     createProps.url = /^https?:\/\//i.test(url) ? url : 'https://' + url;
   }
   const tab = await chrome.tabs.create(createProps);
-  // Switch capture to the new tab
-  // Small delay to let Chrome finish creating the tab
   setTimeout(() => switchTab(tab.id), 300);
 }
 
@@ -340,13 +338,11 @@ async function closeTab(tabId) {
   await chrome.tabs.remove(tabId);
 
   if (wasCaptured) {
-    // Capture the now-active tab
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (activeTab) {
       await switchTab(activeTab.id);
     }
   }
-  // Tab list will be refreshed by onTabRemoved listener
 }
 
 // --- Debugger for input injection ---
@@ -354,10 +350,20 @@ async function closeTab(tabId) {
 async function attachDebugger(tabId) {
   if (!tabId || hostState.debuggerAttached) return;
   try {
+    // Log what we're attaching to so we can spot chrome:// / extension page issues
+    const tab = await chrome.tabs.get(tabId);
+    console.log('[VIPSEE:bg] Attaching debugger to tab', tabId, '| url:', tab.url);
+
+    if (tab.url && (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://'))) {
+      console.warn('[VIPSEE:bg] WARNING: Cannot attach debugger to chrome:// or extension pages');
+      return;
+    }
+
     await chrome.debugger.attach({ tabId }, '1.3');
     hostState.debuggerAttached = true;
+    console.log('[VIPSEE:bg] Debugger attached successfully to tab', tabId);
   } catch (e) {
-    console.error('Failed to attach debugger:', e);
+    console.error('[VIPSEE:bg] Failed to attach debugger to tab', tabId, ':', e.message || e);
   }
 }
 
@@ -365,12 +371,14 @@ async function detachDebugger(tabId) {
   if (!tabId || !hostState.debuggerAttached) return;
   try {
     await chrome.debugger.detach({ tabId });
+    console.log('[VIPSEE:bg] Debugger detached from tab', tabId);
   } catch (e) { /* may already be detached */ }
   hostState.debuggerAttached = false;
 }
 
 chrome.debugger.onDetach.addListener((source, reason) => {
   if (source.tabId === hostState.capturedTabId) {
+    console.warn('[VIPSEE:bg] Debugger detached externally, reason:', reason);
     hostState.debuggerAttached = false;
   }
 });
@@ -379,7 +387,14 @@ chrome.debugger.onDetach.addListener((source, reason) => {
 
 function handleInputEvent(evt) {
   const tabId = hostState.capturedTabId;
-  if (!tabId || !hostState.debuggerAttached) return;
+  if (!tabId) {
+    console.warn('[VIPSEE:bg] Input dropped: no capturedTabId');
+    return;
+  }
+  if (!hostState.debuggerAttached) {
+    console.warn('[VIPSEE:bg] Input dropped: debugger not attached');
+    return;
+  }
 
   if (evt.type === 'mouse') {
     dispatchMouseEvent(tabId, evt);
@@ -398,6 +413,8 @@ function dispatchMouseEvent(tabId, evt) {
       y: evt.y,
       deltaX: evt.deltaX || 0,
       deltaY: evt.deltaY || 0
+    }).catch(err => {
+      console.error('[VIPSEE:bg] dispatchMouseEvent(wheel) failed:', err.message || err);
     });
     return;
   }
@@ -418,7 +435,13 @@ function dispatchMouseEvent(tabId, evt) {
 
   if (evt.modifiers) params.modifiers = evt.modifiers;
 
-  chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', params);
+  if (evt.action !== 'move') {
+    console.log('[VIPSEE:bg] Dispatching mouse', evt.action, 'at', evt.x, evt.y, 'button:', params.button);
+  }
+
+  chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', params).catch(err => {
+    console.error('[VIPSEE:bg] dispatchMouseEvent(' + evt.action + ') failed:', err.message || err);
+  });
 }
 
 function dispatchKeyEvent(tabId, evt) {
@@ -442,5 +465,9 @@ function dispatchKeyEvent(tabId, evt) {
   if (evt.unmodifiedText) params.unmodifiedText = evt.unmodifiedText;
   if (evt.modifiers) params.modifiers = evt.modifiers;
 
-  chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', params);
+  console.log('[VIPSEE:bg] Dispatching key', evt.action, ':', evt.key, '(code:', evt.code, ')');
+
+  chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', params).catch(err => {
+    console.error('[VIPSEE:bg] dispatchKeyEvent(' + evt.action + ') failed:', err.message || err);
+  });
 }

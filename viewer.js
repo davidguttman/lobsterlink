@@ -78,6 +78,7 @@ function connect(hostPeerId) {
       setStatus('Connected', 'connected');
       overlay.classList.add('hidden');
       overlayMsg.textContent = '';
+      console.log('[VIPSEE:viewer] Data channel open, connected to host');
 
       // Request tab list on connect
       sendControl({ type: 'listTabs' });
@@ -209,6 +210,7 @@ function handleHostMessage(msg) {
     case 'viewport':
       remoteViewport.width = msg.width;
       remoteViewport.height = msg.height;
+      console.log('[VIPSEE:viewer] Remote viewport:', msg.width, 'x', msg.height);
       break;
 
     case 'tabChanged':
@@ -270,12 +272,21 @@ tabSelect.addEventListener('change', () => {
 // --- Send helpers ---
 
 function sendControl(evt) {
-  if (!dataConn || !dataConn.open) return;
+  if (!dataConn || !dataConn.open) {
+    console.warn('[VIPSEE:viewer] sendControl dropped (no connection):', evt.type);
+    return;
+  }
+  console.log('[VIPSEE:viewer] Sending control:', evt.type);
   dataConn.send(JSON.stringify(evt));
 }
 
 function sendInput(evt) {
   if (!dataConn || !dataConn.open) return;
+  // Log non-move events to avoid spam
+  if (evt.type !== 'mouse' || evt.action !== 'move') {
+    console.log('[VIPSEE:viewer] Sending input:', evt.type, evt.action,
+      evt.type === 'mouse' ? `(${evt.x},${evt.y})` : evt.key);
+  }
   dataConn.send(JSON.stringify(evt));
 }
 
@@ -354,6 +365,15 @@ function mapCoords(e) {
   const x = Math.round((localX / renderW) * remoteViewport.width);
   const y = Math.round((localY / renderH) * remoteViewport.height);
 
+  // Warn on bad coordinates (NaN, negative, way out of range)
+  if (isNaN(x) || isNaN(y) || x < -100 || y < -100 ||
+      x > remoteViewport.width + 100 || y > remoteViewport.height + 100) {
+    console.warn('[VIPSEE:viewer] Bad coords:', x, y,
+      '| renderW:', renderW, 'renderH:', renderH,
+      '| remoteViewport:', remoteViewport.width, 'x', remoteViewport.height,
+      '| videoW:', video.videoWidth, 'videoH:', video.videoHeight);
+  }
+
   return { x, y };
 }
 
@@ -388,6 +408,8 @@ video.addEventListener('mousemove', (e) => {
 
 video.addEventListener('mousedown', (e) => {
   e.preventDefault();
+  // preventDefault suppresses default focus, so we must focus explicitly
+  video.focus();
   const { x, y } = mapCoords(e);
   sendInput({
     type: 'mouse', action: 'down', x, y,
