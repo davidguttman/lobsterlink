@@ -739,3 +739,8 @@ function dispatchKeyEvent(tabId, evt) {
     console.error('[VIPSEE:bg] dispatchKeyEvent(' + evt.action + ') failed:', err.message || err);
   });
 }
+
+// Expose for programmatic CDP triggering
+self.handleStartHosting = handleStartHosting;
+self.handleStartHostingCDP = handleStartHostingCDP;
+
