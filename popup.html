@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body {
+      width: 300px;
+      padding: 16px;
+      font-family: system-ui, sans-serif;
+      font-size: 14px;
+      color: #e0e0e0;
+      background: #1a1a2e;
+    }
+    h1 {
+      font-size: 18px;
+      margin: 0 0 16px;
+      color: #fff;
+    }
+    .mode-btn {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 8px;
+      border: 1px solid #333;
+      border-radius: 8px;
+      background: #16213e;
+      color: #e0e0e0;
+      cursor: pointer;
+      font-size: 14px;
+      text-align: left;
+    }
+    .mode-btn:hover { background: #1a1a4e; border-color: #5568f0; }
+    .mode-btn .label { font-weight: 600; color: #fff; }
+    .mode-btn .desc { font-size: 12px; color: #888; margin-top: 4px; }
+
+    #host-panel, #viewer-panel { display: none; }
+    .active { display: block !important; }
+
+    input[type="text"] {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px;
+      border: 1px solid #333;
+      border-radius: 6px;
+      background: #0f0f23;
+      color: #fff;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      background: #5568f0;
+      color: #fff;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    button:hover { background: #4455cc; }
+    button:disabled { opacity: 0.5; cursor: default; }
+
+    .peer-id {
+      font-family: monospace;
+      font-size: 16px;
+      background: #0f0f23;
+      padding: 8px;
+      border-radius: 6px;
+      word-break: break-all;
+      margin: 8px 0;
+      user-select: all;
+    }
+    .back-link {
+      display: inline-block;
+      margin-bottom: 12px;
+      color: #5568f0;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .status {
+      font-size: 12px;
+      color: #888;
+      margin-top: 8px;
+    }
+    .status.error { color: #f05555; }
+    .status.ok { color: #55f068; }
+  </style>
+</head>
+<body>
+  <h1>Vipsee</h1>
+
+  <div id="mode-select">
+    <button class="mode-btn" id="btn-host">
+      <div class="label">Host</div>
+      <div class="desc">Share a tab from this browser</div>
+    </button>
+    <button class="mode-btn" id="btn-viewer">
+      <div class="label">Viewer</div>
+      <div class="desc">Connect to a remote tab</div>
+    </button>
+  </div>
+
+  <div id="host-panel">
+    <span class="back-link" id="host-back">&larr; Back</span>
+    <div>
+      <button id="host-start">Start Hosting</button>
+      <button id="host-stop" style="display:none; background:#f05555;">Stop</button>
+    </div>
+    <div id="host-peer-id" class="peer-id" style="display:none;"></div>
+    <div id="host-status" class="status"></div>
+  </div>
+
+  <div id="viewer-panel">
+    <span class="back-link" id="viewer-back">&larr; Back</span>
+    <input type="text" id="viewer-peer-input" placeholder="Enter host peer ID" />
+    <button id="viewer-connect">Connect</button>
+    <div id="viewer-status" class="status"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
