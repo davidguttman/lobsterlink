@@ -387,6 +387,32 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   if (source.tabId === hostState.capturedTabId) {
     console.warn('[VIPSEE:bg] Debugger detached externally, reason:', reason);
     hostState.debuggerAttached = false;
+
+    // Auto-reattach after navigation or target_closed
+    if (hostState.hosting && hostState.viewerConnected) {
+      console.log('[VIPSEE:bg] Attempting debugger re-attach...');
+      setTimeout(async () => {
+        // The tab may have navigated — check if it still exists
+        try {
+          const tab = await chrome.tabs.get(hostState.capturedTabId);
+          if (tab) {
+            await attachDebugger(tab.id);
+            return;
+          }
+        } catch (e) {
+          // Tab is gone — find the now-active tab and switch to it
+          console.log('[VIPSEE:bg] Original tab gone, switching to active tab');
+        }
+        try {
+          const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          if (activeTab) {
+            await switchTab(activeTab.id);
+          }
+        } catch (e) {
+          console.error('[VIPSEE:bg] Failed to recover after debugger detach:', e);
+        }
+      }, 500);
+    }
   }
 });
 
