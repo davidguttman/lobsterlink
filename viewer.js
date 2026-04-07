@@ -428,28 +428,34 @@ video.addEventListener('mouseup', (e) => {
 video.addEventListener('wheel', (e) => {
   e.preventDefault();
   const { x, y } = mapCoords(e);
+  // CDP expects pixel deltas; convert line/page modes
+  let dx = e.deltaX, dy = e.deltaY;
+  if (e.deltaMode === 1) { dx *= 40; dy *= 40; }       // lines → pixels
+  else if (e.deltaMode === 2) { dx *= 800; dy *= 600; } // pages → pixels
   sendInput({
     type: 'mouse', action: 'wheel', x, y,
-    deltaX: e.deltaX,
-    deltaY: e.deltaY
+    deltaX: dx,
+    deltaY: dy
   });
 }, { passive: false });
 
 video.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // --- Keyboard events ---
+// Capture on the document so keys work regardless of which element has focus,
+// except when typing in the URL bar or other nav inputs.
 
 video.setAttribute('tabindex', '0');
 
-function shouldCapture(e) {
-  // Only capture when video is focused — allows typing in URL bar etc.
-  return document.activeElement === video;
+function isNavInput(el) {
+  return el && (el.id === 'url-bar' || el.id === 'overlay-peer-input' ||
+    el.tagName === 'SELECT');
 }
 
-video.addEventListener('keydown', (e) => {
-  if (!shouldCapture(e)) return;
+document.addEventListener('keydown', (e) => {
+  if (!dataConn || !dataConn.open) return;
+  if (isNavInput(document.activeElement)) return;
 
-  // Prevent local browser shortcuts
   e.preventDefault();
   e.stopPropagation();
 
@@ -467,8 +473,9 @@ video.addEventListener('keydown', (e) => {
   sendInput(evt);
 }, true);
 
-video.addEventListener('keyup', (e) => {
-  if (!shouldCapture(e)) return;
+document.addEventListener('keyup', (e) => {
+  if (!dataConn || !dataConn.open) return;
+  if (isNavInput(document.activeElement)) return;
 
   e.preventDefault();
   e.stopPropagation();

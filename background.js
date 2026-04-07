@@ -624,7 +624,7 @@ async function attachDebugger(tabId) {
     hostState.debuggerAttached = true;
     console.log('[VIPSEE:bg] Debugger attached successfully to tab', tabId);
 
-    await injectCursorOverlay(tabId);
+    await hideHostCursor(tabId);
   } catch (e) {
     console.error('[VIPSEE:bg] Failed to attach debugger to tab', tabId, ':', e.message || e);
   }
@@ -706,43 +706,20 @@ async function retryAttachDebugger(maxRetries, delayMs) {
   }
 }
 
-// --- Remote cursor overlay (injected into host page via CDP) ---
+// --- Hide host cursor (CDP-driven tabs don't show a visible cursor anyway) ---
 
-const CURSOR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><path d="M2 2l6 16 2.5-6.5L17 9z" fill="white" stroke="black" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
-
-const CURSOR_INJECT_JS = `
-(function() {
-  if (document.getElementById('__vipsee_cursor__')) return;
-  var el = document.createElement('div');
-  el.id = '__vipsee_cursor__';
-  el.style.cssText = 'position:fixed;top:0;left:0;width:20px;height:20px;z-index:2147483647;pointer-events:none;opacity:0.85;will-change:transform;';
-  el.innerHTML = '${CURSOR_SVG.replace(/'/g, "\\'")}';
-  document.documentElement.appendChild(el);
-})();
-`;
-
-async function injectCursorOverlay(tabId) {
+async function hideHostCursor(tabId) {
   if (!hostState.debuggerAttached) return;
   try {
     await chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', {
-      expression: CURSOR_INJECT_JS
+      expression: "document.body.style.cursor='none'"
     });
-    console.log('[VIPSEE:bg] Cursor overlay injected into tab', tabId);
-  } catch (e) {
-    console.warn('[VIPSEE:bg] Failed to inject cursor overlay:', e.message || e);
-  }
-}
-
-function updateCursorPosition(tabId, x, y) {
-  const expr = `(function(){var c=document.getElementById('__vipsee_cursor__');if(c)c.style.transform='translate(${x}px,${y}px)'})()`;
-  chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', {
-    expression: expr
-  }).catch(() => {});
+  } catch (e) { /* non-critical */ }
 }
 
 function onTabNavigated(tabId) {
   if (tabId === hostState.capturedTabId && hostState.debuggerAttached) {
-    setTimeout(() => injectCursorOverlay(tabId), 500);
+    setTimeout(() => hideHostCursor(tabId), 500);
   }
 }
 
@@ -804,10 +781,6 @@ function dispatchMouseEvent(tabId, evt) {
 
   if (evt.action !== 'move') {
     console.log('[VIPSEE:bg] Dispatching mouse', evt.action, 'at', evt.x, evt.y, 'button:', params.button);
-  }
-
-  if (evt.action === 'move') {
-    updateCursorPosition(tabId, evt.x, evt.y);
   }
 
   chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', params).catch(err => {

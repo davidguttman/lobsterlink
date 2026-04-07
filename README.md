@@ -6,6 +6,10 @@ One extension, two modes:
 - **Host** — shares a tab's video stream and accepts input/control commands
 - **Viewer** — connects to a host, renders the live tab, and sends mouse/keyboard input
 
+Two capture backends:
+- **tabCapture** — high fidelity, requires human click in popup (user gesture)
+- **CDP screencast** — works programmatically (agent/API use), falls back automatically when tabCapture is unavailable
+
 ## Setup
 
 1. Clone this repo
@@ -19,48 +23,46 @@ One extension, two modes:
 ### Host (remote machine)
 
 1. Navigate to the tab you want to share
-2. Click the Vipsee extension icon
-3. Click **Host** → **Start Hosting**
-4. Copy the peer ID displayed
+2. Click the Vipsee extension icon → **Host** → **Start Hosting**
+3. The viewer auto-opens in a new window with the peer ID pre-filled
+4. Share the peer ID if connecting from a different machine
 
 ### Viewer (local machine)
 
-1. Click the Vipsee extension icon
-2. Click **Viewer**, paste the host's peer ID, click **Connect**
-3. A new tab opens with the remote tab's live video
-4. Click on the video to focus it — mouse and keyboard events are forwarded to the host
-5. Use the nav bar to navigate, switch tabs, open/close tabs
+1. Click the Vipsee extension icon → **Viewer**
+2. Paste the host's peer ID, click **Connect**
+3. The viewer opens in a new window with the remote tab's live video
+4. Mouse and keyboard events are forwarded to the host automatically
+5. Use the nav bar: back/forward/reload, URL bar, tab dropdown, viewport selector
 
-## Two-Machine Testing
+### Programmatic / Agent Use
 
-### Requirements
-- Chrome (not Chromium headless — `tabCapture` needs a headed browser)
-- On headless servers, run Chrome under Xvfb: `xvfb-run google-chrome --no-sandbox`
+Send a `startHostingCDP` message to the service worker to start hosting without a user gesture:
+```js
+chrome.runtime.sendMessage({ action: 'startHostingCDP', tabId: 123 });
+```
+This uses CDP `Page.startScreencast` instead of `tabCapture`.
+
+## Requirements
+
+- Chrome (not headless — `tabCapture` needs a headed browser)
+- On servers, run Chrome under Xvfb: `xvfb-run google-chrome --no-sandbox`
 - Both machines need internet access (PeerJS uses `0.peerjs.com` for signaling, then direct WebRTC)
 
-### Steps
+## Troubleshooting
 
-1. Install the extension on both machines
-2. On Machine A (host): open a tab, start hosting, note the peer ID
-3. On Machine B (viewer): enter the peer ID, connect
-4. Verify: video renders, mouse clicks/scrolls work, keyboard input works
-5. Test nav: type a URL in the viewer's URL bar and press Enter
-6. Test tabs: use the dropdown to switch tabs, + to open, × to close
-
-### Troubleshooting
-
-- **"Extension is debugging this tab" infobar** — expected; Chrome shows this when `chrome.debugger` is attached. Do not dismiss it or input injection will stop.
-- **Black/frozen video (same window)** — In tabCapture mode, if the viewer tab is in the same window as the host tab, Chrome backgrounds and throttles the host tab, killing the capture stream. The viewer must be in a **separate window**. The popup auto-opens the viewer in a new window to avoid this.
-- **No video** — check that the host tab is active when you start hosting. `tabCapture` requires an active tab.
-- **Connection fails** — both machines need to be able to reach `0.peerjs.com:443` and establish a direct WebRTC connection (or have TURN relay). Firewalls/NAT may block this.
-- **Input not working** — click on the video element to focus it. Keyboard events only send when the video is focused.
+- **"Extension is debugging this tab" infobar** — expected when `chrome.debugger` is attached. Don't dismiss it or input injection stops.
+- **Black/frozen video (same window)** — In tabCapture mode, the host tab must stay active. If the viewer is in the same window, Chrome backgrounds the host tab and freezes the stream. The popup auto-opens the viewer in a separate window to prevent this.
+- **No video** — ensure the host tab is active when starting. `tabCapture` requires an active tab.
+- **Connection fails** — both machines must reach `0.peerjs.com:443` and establish a direct WebRTC connection (or TURN relay). Firewalls/NAT may block this.
+- **Screencast black screen** — CDP screencast only sends frames on visual changes. On static pages, frames may arrive before the viewer connects. The extension restarts the screencast on viewer connect and uses a canvas frame ticker to force continuous output.
 
 ## Architecture
 
 ```
 Host (service worker + offscreen doc)     Viewer (viewer.html)
 ┌─────────────────────────┐               ┌─────────────────────┐
-│ chrome.tabCapture        │               │ <video> element      │
+│ tabCapture / screencast  │               │ <video> element      │
 │ → MediaStream (offscreen)│──RTC video──→ │ → renders live tab   │
 │                          │               │                      │
 │ chrome.debugger          │←─RTC data───  │ mouse/keyboard/ctrl  │
@@ -75,6 +77,6 @@ Host (service worker + offscreen doc)     Viewer (viewer.html)
 
 - `tabCapture` — capture tab video
 - `tabs` — query/manage tabs
-- `debugger` — inject input events via Chrome DevTools Protocol
+- `debugger` — inject input events + screencast via Chrome DevTools Protocol
 - `activeTab` — access active tab on user gesture
 - `offscreen` — create offscreen document for MediaStream handling
