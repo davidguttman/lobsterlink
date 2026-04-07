@@ -103,6 +103,7 @@ function connect(hostPeerId) {
     mediaCall.on('stream', (remoteStream) => {
       video.srcObject = remoteStream;
       console.log('[VIPSEE:viewer] Remote stream received, tracks:', remoteStream.getTracks().length);
+      video.play().catch(e => console.error('[VIPSEE:viewer] play() failed:', e));
     });
 
     mediaCall.on('close', () => {
