@@ -92,10 +92,6 @@ function setupPeer() {
       const img = new Image();
       img.onload = () => {
         screencastCtx.drawImage(img, 0, 0);
-        const track = mediaStream ? mediaStream.getVideoTracks()[0] : null;
-        if (track && track.requestFrame) {
-          track.requestFrame();
-        }
       };
       img.src = 'data:image/jpeg;base64,' + lastFrameData;
     }
@@ -248,7 +244,7 @@ function startHostScreencast(width, height) {
 
   // Get MediaStream from canvas — 0 means frames are captured on
   // requestAnimationFrame / when the canvas is painted
-  mediaStream = screencastCanvas.captureStream(0);
+  mediaStream = screencastCanvas.captureStream(15);
 
   console.log('[VIPSEE:offscreen] Canvas MediaStream created, tracks:', mediaStream.getTracks().length);
   setupPeer();
@@ -289,15 +285,6 @@ function drawScreencastFrame(base64Data, metadata) {
     }
 
     screencastCtx.drawImage(img, 0, 0);
-
-    // Request a frame capture from the canvas stream
-    const track = mediaStream ? mediaStream.getVideoTracks()[0] : null;
-    if (track && track.requestFrame) {
-      track.requestFrame();
-    } else if (frameDrawCount <= 3) {
-      console.warn('[VIPSEE:offscreen] No requestFrame available on track',
-        '| track:', track, '| has requestFrame:', track ? !!track.requestFrame : false);
-    }
   };
   img.onerror = (err) => {
     console.error('[VIPSEE:offscreen] Image decode failed for frame #' + frameDrawCount);

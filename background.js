@@ -3,6 +3,9 @@
 //   'tabCapture' — chrome.tabCapture (requires user gesture from popup)
 //   'screencast' — CDP Page.startScreencast (works programmatically)
 
+const SCREENCAST_MAX_WIDTH = 1280;
+const SCREENCAST_MAX_HEIGHT = 720;
+
 let hostState = {
   hosting: false,
   peerId: null,
@@ -66,8 +69,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           await chrome.debugger.sendCommand({ tabId }, 'Page.startScreencast', {
             format: 'jpeg',
             quality: 80,
-            maxWidth: w,
-            maxHeight: h
+            maxWidth: SCREENCAST_MAX_WIDTH,
+            maxHeight: SCREENCAST_MAX_HEIGHT
           });
           screencastFrameCount = 0;
           console.log('[VIPSEE:bg] Screencast restarted at', w, 'x', h);
@@ -168,21 +171,14 @@ async function startScreencastMode(tabId) {
     return { error: 'Failed to attach debugger for screencast' };
   }
 
-  // Get page dimensions for canvas sizing
-  const layoutMetrics = await chrome.debugger.sendCommand(
-    { tabId }, 'Page.getLayoutMetrics'
-  );
-  const width = Math.round(layoutMetrics.cssLayoutViewport.clientWidth);
-  const height = Math.round(layoutMetrics.cssLayoutViewport.clientHeight);
-
-  console.log('[VIPSEE:bg] Page dimensions for screencast:', width, 'x', height);
+  console.log('[VIPSEE:bg] Screencast dimensions capped to', SCREENCAST_MAX_WIDTH, 'x', SCREENCAST_MAX_HEIGHT);
 
   // Set up offscreen document in screencast/canvas mode
   await ensureOffscreenDocument();
   await chrome.runtime.sendMessage({
     action: 'offscreen:startHostScreencast',
-    width,
-    height
+    width: SCREENCAST_MAX_WIDTH,
+    height: SCREENCAST_MAX_HEIGHT
   });
 
   // Enable Page domain events (required for screencastFrame events to fire)
@@ -193,8 +189,8 @@ async function startScreencastMode(tabId) {
   await chrome.debugger.sendCommand({ tabId }, 'Page.startScreencast', {
     format: 'jpeg',
     quality: 80,
-    maxWidth: width,
-    maxHeight: height
+    maxWidth: SCREENCAST_MAX_WIDTH,
+    maxHeight: SCREENCAST_MAX_HEIGHT
   });
 
   console.log('[VIPSEE:bg] CDP screencast started');
@@ -501,8 +497,8 @@ async function switchTab(tabId) {
     await chrome.debugger.sendCommand({ tabId }, 'Page.startScreencast', {
       format: 'jpeg',
       quality: 80,
-      maxWidth: width,
-      maxHeight: height
+      maxWidth: SCREENCAST_MAX_WIDTH,
+      maxHeight: SCREENCAST_MAX_HEIGHT
     });
   } else {
     // tabCapture mode
@@ -621,11 +617,10 @@ async function retryAttachDebugger(maxRetries, delayMs) {
             const layoutMetrics = await chrome.debugger.sendCommand(
               { tabId: tab.id }, 'Page.getLayoutMetrics'
             );
-            const w = Math.round(layoutMetrics.cssLayoutViewport.clientWidth);
-            const h = Math.round(layoutMetrics.cssLayoutViewport.clientHeight);
             await chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.enable');
             await chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.startScreencast', {
-              format: 'jpeg', quality: 80, maxWidth: w, maxHeight: h
+              format: 'jpeg', quality: 80,
+              maxWidth: SCREENCAST_MAX_WIDTH, maxHeight: SCREENCAST_MAX_HEIGHT
             });
           }
           console.log('[VIPSEE:bg] Reattach succeeded on attempt', i + 1);
