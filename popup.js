@@ -41,12 +41,6 @@ hostStart.addEventListener('click', async () => {
   const modeLabel = response.captureMode === 'screencast' ? ' (CDP screencast)' : '';
   hostStatus.textContent = 'Hosting' + modeLabel + ' — share the peer ID with the viewer';
   hostStatus.className = 'status ok';
-
-  // chrome.tabCapture requires the captured tab to remain active/visible.
-  // Opening the viewer in the same window would background the host tab,
-  // causing Chrome to throttle/freeze the capture stream. Use a new window.
-  const viewerUrl = chrome.runtime.getURL(`viewer.html?peerId=${encodeURIComponent(response.peerId)}`);
-  chrome.windows.create({ url: viewerUrl, type: 'normal' });
 });
 
 hostStop.addEventListener('click', async () => {

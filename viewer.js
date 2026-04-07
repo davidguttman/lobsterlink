@@ -213,6 +213,7 @@ function handleHostMessage(msg) {
       remoteViewport.width = msg.width;
       remoteViewport.height = msg.height;
       console.log('[VIPSEE:viewer] Remote viewport:', msg.width, 'x', msg.height);
+      resizeVideo();
       break;
 
     case 'tabChanged':
@@ -497,15 +498,29 @@ document.addEventListener('keyup', (e) => {
   });
 }, true);
 
-// --- Video sizing (JS-driven, not CSS) ---
+// --- Video sizing ---
 
-// No JS resizing. Video renders at 1:1 native pixels.
-// Focus video on click for keyboard capture
+const videoContainer = document.getElementById('video-container');
+
+function resizeVideo() {
+  const cw = videoContainer.clientWidth;
+  const ch = videoContainer.clientHeight;
+  const srcW = video.videoWidth || remoteViewport.width;
+  const srcH = video.videoHeight || remoteViewport.height;
+  if (!cw || !ch || !srcW || !srcH) return;
+
+  const scale = Math.min(cw / srcW, ch / srcH);
+  video.style.width = Math.round(srcW * scale) + 'px';
+  video.style.height = Math.round(srcH * scale) + 'px';
+}
+
 video.addEventListener('click', () => video.focus());
+video.addEventListener('loadedmetadata', resizeVideo);
 video.addEventListener('playing', () => {
   video.focus();
-  console.log('[VIPSEE:viewer] Video playing — intrinsic:', video.videoWidth, 'x', video.videoHeight);
+  resizeVideo();
 });
+window.addEventListener('resize', resizeVideo);
 
 // --- Clean disconnect on page unload ---
 
