@@ -330,6 +330,17 @@ document.getElementById('btn-close-tab').addEventListener('click', () => {
   }
 });
 
+document.getElementById('viewport-select').addEventListener('change', (e) => {
+  const val = e.target.value;
+  if (!val) return;
+  const [w, h] = val.split('x').map(Number);
+  if (w && h) {
+    sendControl({ type: 'setViewport', width: w, height: h });
+  }
+  // Reset to label
+  e.target.value = '';
+});
+
 // --- Coordinate mapping ---
 
 function getModifiers(e) {

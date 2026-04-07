@@ -171,7 +171,17 @@ async function startScreencastMode(tabId) {
     return { error: 'Failed to attach debugger for screencast' };
   }
 
-  console.log('[VIPSEE:bg] Screencast dimensions capped to', SCREENCAST_MAX_WIDTH, 'x', SCREENCAST_MAX_HEIGHT);
+  // Set viewport to controlled dimensions
+  hostState.screencastWidth = SCREENCAST_MAX_WIDTH;
+  hostState.screencastHeight = SCREENCAST_MAX_HEIGHT;
+
+  await chrome.debugger.sendCommand({ tabId }, 'Emulation.setDeviceMetricsOverride', {
+    width: SCREENCAST_MAX_WIDTH,
+    height: SCREENCAST_MAX_HEIGHT,
+    deviceScaleFactor: 1,
+    mobile: false
+  });
+  console.log('[VIPSEE:bg] Viewport set to', SCREENCAST_MAX_WIDTH, 'x', SCREENCAST_MAX_HEIGHT);
 
   // Set up offscreen document in screencast/canvas mode
   await ensureOffscreenDocument();
@@ -222,6 +232,14 @@ async function handleStopHosting() {
 
   if (hostState.captureMode === 'screencast') {
     await stopScreencast();
+    // Restore original viewport
+    if (hostState.capturedTabId && hostState.debuggerAttached) {
+      try {
+        await chrome.debugger.sendCommand(
+          { tabId: hostState.capturedTabId }, 'Emulation.clearDeviceMetricsOverride'
+        );
+      } catch (e) { /* tab may be gone */ }
+    }
   }
 
   try {
@@ -458,10 +476,49 @@ async function handleControlEvent(evt) {
       case 'closeTab':
         await closeTab(evt.tabId);
         break;
+
+      case 'setViewport':
+        await setHostViewport(evt.width, evt.height);
+        break;
     }
   } catch (err) {
     console.error('[VIPSEE:bg] Control event error:', err, evt);
   }
+}
+
+async function setHostViewport(width, height) {
+  if (!hostState.capturedTabId || !hostState.debuggerAttached) return;
+  if (hostState.captureMode !== 'screencast') return;
+
+  const tabId = hostState.capturedTabId;
+  console.log('[VIPSEE:bg] Setting host viewport to', width, 'x', height);
+
+  // Update viewport
+  await chrome.debugger.sendCommand({ tabId }, 'Emulation.setDeviceMetricsOverride', {
+    width, height, deviceScaleFactor: 1, mobile: false
+  });
+
+  // Update session dimensions
+  hostState.screencastWidth = width;
+  hostState.screencastHeight = height;
+
+  // Restart screencast at new dimensions
+  await chrome.debugger.sendCommand({ tabId }, 'Page.stopScreencast');
+  await chrome.debugger.sendCommand({ tabId }, 'Page.startScreencast', {
+    format: 'jpeg',
+    quality: 80,
+    maxWidth: width,
+    maxHeight: height
+  });
+  screencastFrameCount = 0;
+
+  // Resize canvas in offscreen doc
+  await chrome.runtime.sendMessage({
+    action: 'offscreen:screencastResize',
+    width, height
+  }).catch(() => {});
+
+  console.log('[VIPSEE:bg] Viewport and screencast restarted at', width, 'x', height);
 }
 
 async function switchTab(tabId) {

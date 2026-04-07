@@ -41,7 +41,7 @@
     }
     #url-bar:focus { border-color: #5568f0; outline: none; }
 
-    #tab-select {
+    #tab-select, #viewport-select {
       max-width: 200px; background: #0f0f23; border: 1px solid #333;
       border-radius: 4px; color: #fff; padding: 2px 4px; font-size: 12px;
       height: 28px; flex-shrink: 0;
@@ -105,6 +105,12 @@
     <select id="tab-select" title="Switch tab"></select>
     <button class="nav-btn" id="btn-new-tab" title="New tab">+</button>
     <button class="nav-btn danger" id="btn-close-tab" title="Close current tab">&#10005;</button>
+    <select id="viewport-select" title="Host viewport size">
+      <option value="">Viewport</option>
+      <option value="1920x1080">1920x1080</option>
+      <option value="1280x720">1280x720</option>
+      <option value="1024x768">1024x768</option>
+    </select>
     <span id="connection-status">Disconnected</span>
   </div>
 
