@@ -161,6 +161,10 @@ async function startScreencastMode(tabId) {
     height
   });
 
+  // Enable Page domain events (required for screencastFrame events to fire)
+  await chrome.debugger.sendCommand({ tabId }, 'Page.enable');
+  console.log('[VIPSEE:bg] Page domain enabled');
+
   // Start CDP screencast
   await chrome.debugger.sendCommand({ tabId }, 'Page.startScreencast', {
     format: 'jpeg',
@@ -262,9 +266,18 @@ function sendToViewer(message) {
 
 // --- CDP screencast frame handling ---
 
+let screencastFrameCount = 0;
+
 chrome.debugger.onEvent.addListener((source, method, params) => {
   if (source.tabId !== hostState.capturedTabId) return;
   if (method !== 'Page.screencastFrame') return;
+
+  screencastFrameCount++;
+  if (screencastFrameCount <= 3 || screencastFrameCount % 30 === 0) {
+    console.log('[VIPSEE:bg] screencastFrame #' + screencastFrameCount,
+      '| data length:', params.data ? params.data.length : 0,
+      '| metadata:', JSON.stringify(params.metadata));
+  }
 
   // Forward frame to offscreen document for canvas rendering
   chrome.runtime.sendMessage({
@@ -272,7 +285,11 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     data: params.data,
     sessionId: params.sessionId,
     metadata: params.metadata
-  }).catch(() => {});
+  }).catch((err) => {
+    if (screencastFrameCount <= 5) {
+      console.error('[VIPSEE:bg] Failed to forward frame to offscreen:', err.message || err);
+    }
+  });
 
   // Ack the frame so CDP sends the next one
   chrome.debugger.sendCommand(source, 'Page.screencastFrameAck', {
@@ -444,6 +461,7 @@ async function switchTab(tabId) {
     });
 
     // Restart screencast on new tab
+    await chrome.debugger.sendCommand({ tabId }, 'Page.enable');
     await chrome.debugger.sendCommand({ tabId }, 'Page.startScreencast', {
       format: 'jpeg',
       quality: 80,
@@ -569,6 +587,7 @@ async function retryAttachDebugger(maxRetries, delayMs) {
             );
             const w = Math.round(layoutMetrics.cssLayoutViewport.clientWidth);
             const h = Math.round(layoutMetrics.cssLayoutViewport.clientHeight);
+            await chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.enable');
             await chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.startScreencast', {
               format: 'jpeg', quality: 80, maxWidth: w, maxHeight: h
             });

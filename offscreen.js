@@ -237,27 +237,50 @@ function startHostScreencast(width, height) {
   setupPeer();
 }
 
+let frameDrawCount = 0;
+
 function drawScreencastFrame(base64Data, metadata) {
-  if (!screencastCtx || !screencastCanvas) return;
+  if (!screencastCtx || !screencastCanvas) {
+    console.warn('[VIPSEE:offscreen] Frame dropped: no canvas/ctx');
+    return;
+  }
+  if (!base64Data) {
+    console.warn('[VIPSEE:offscreen] Frame dropped: no data');
+    return;
+  }
+
+  frameDrawCount++;
+  if (frameDrawCount <= 3 || frameDrawCount % 30 === 0) {
+    console.log('[VIPSEE:offscreen] drawScreencastFrame #' + frameDrawCount,
+      '| data length:', base64Data.length,
+      '| canvas:', screencastCanvas.width, 'x', screencastCanvas.height,
+      '| stream tracks:', mediaStream ? mediaStream.getVideoTracks().length : 0);
+  }
 
   const img = new Image();
   img.onload = () => {
     // Resize canvas if frame dimensions changed
     if (img.width !== screencastCanvas.width || img.height !== screencastCanvas.height) {
+      console.log('[VIPSEE:offscreen] Canvas resize:', img.width, 'x', img.height);
       screencastCanvas.width = img.width;
       screencastCanvas.height = img.height;
       screencastCtx = screencastCanvas.getContext('2d');
-      // Notify viewer of new dimensions
       sendViewportInfo();
     }
 
     screencastCtx.drawImage(img, 0, 0);
 
-    // Request a frame capture from the stream
+    // Request a frame capture from the canvas stream
     const track = mediaStream ? mediaStream.getVideoTracks()[0] : null;
     if (track && track.requestFrame) {
       track.requestFrame();
+    } else if (frameDrawCount <= 3) {
+      console.warn('[VIPSEE:offscreen] No requestFrame available on track',
+        '| track:', track, '| has requestFrame:', track ? !!track.requestFrame : false);
     }
+  };
+  img.onerror = (err) => {
+    console.error('[VIPSEE:offscreen] Image decode failed for frame #' + frameDrawCount);
   };
   img.src = 'data:image/jpeg;base64,' + base64Data;
 }
