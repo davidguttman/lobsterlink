@@ -12,6 +12,8 @@ let dataConnection = null;
 let screencastCanvas = null;
 let screencastCtx = null;
 let lastFrameData = null; // stores last base64 JPEG for redraw on viewer connect
+let frameTickerInterval = null;
+let frameTickerFlip = false;
 let hostMode = null; // 'tabCapture' | 'screencast'
 
 const INPUT_TYPES = new Set(['mouse', 'key']);
@@ -84,20 +86,24 @@ function setupPeer() {
     currentCall = call;
     call.answer(mediaStream);
 
-    // In screencast mode, redraw the last frame so the viewer gets
-    // content immediately (CDP only sends frames on visual changes,
-    // so on a static page the frames arrived before the viewer connected)
-    if (hostMode === 'screencast' && lastFrameData && screencastCtx) {
-      console.log('[VIPSEE:offscreen] Redrawing last stored frame for new viewer');
-      const img = new Image();
-      img.onload = () => {
-        screencastCtx.drawImage(img, 0, 0);
-      };
-      img.src = 'data:image/jpeg;base64,' + lastFrameData;
+    // In screencast mode, redraw the last frame and start a ticker
+    // to force continuous canvas invalidation so captureStream(15)
+    // emits encoded keyframes even on static pages
+    if (hostMode === 'screencast') {
+      if (lastFrameData && screencastCtx) {
+        console.log('[VIPSEE:offscreen] Redrawing last stored frame for new viewer');
+        const img = new Image();
+        img.onload = () => {
+          screencastCtx.drawImage(img, 0, 0);
+        };
+        img.src = 'data:image/jpeg;base64,' + lastFrameData;
+      }
+      startFrameTicker();
     }
 
     call.on('close', () => {
       console.log('[VIPSEE:offscreen] Media call closed');
+      stopFrameTicker();
       currentCall = null;
     });
 
@@ -303,9 +309,32 @@ function resizeScreencastCanvas(width, height) {
   sendViewportInfo();
 }
 
+// --- Frame ticker (forces canvas invalidation for captureStream) ---
+
+function startFrameTicker() {
+  if (frameTickerInterval) return;
+  frameTickerInterval = setInterval(() => {
+    if (!screencastCtx || !screencastCanvas) return;
+    // Toggle a 1x1 pixel in the top-left corner between two nearly-invisible colors
+    frameTickerFlip = !frameTickerFlip;
+    screencastCtx.fillStyle = frameTickerFlip ? 'rgba(0,0,0,0.01)' : 'rgba(0,0,0,0.02)';
+    screencastCtx.fillRect(0, 0, 1, 1);
+  }, 250);
+  console.log('[VIPSEE:offscreen] Frame ticker started');
+}
+
+function stopFrameTicker() {
+  if (frameTickerInterval) {
+    clearInterval(frameTickerInterval);
+    frameTickerInterval = null;
+    console.log('[VIPSEE:offscreen] Frame ticker stopped');
+  }
+}
+
 // --- Cleanup ---
 
 function stopHost() {
+  stopFrameTicker();
   console.log('[VIPSEE:offscreen] Stopping host, mode:', hostMode);
   if (dataConnection) {
     dataConnection.close();
