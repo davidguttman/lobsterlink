@@ -94,14 +94,14 @@ function setupPeer() {
   });
 
   peer.on('connection', (conn) => {
-    console.log('[VIPSEE:offscreen] Data connection from viewer');
+    console.log('[VIPSEE:offscreen] Data connection from viewer (waiting for open)');
     dataConnection = conn;
 
-    chrome.runtime.sendMessage({ action: 'viewerConnected' });
-
     conn.on('open', () => {
-      console.log('[VIPSEE:offscreen] Data channel open');
+      console.log('[VIPSEE:offscreen] Data channel open, notifying background');
       sendViewportInfo();
+      // Notify background AFTER channel is open so sendToViewer works immediately
+      chrome.runtime.sendMessage({ action: 'viewerConnected' });
     });
 
     conn.on('data', (data) => {

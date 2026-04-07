@@ -292,9 +292,21 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   });
 
   // Ack the frame so CDP sends the next one
+  const ackSessionId = params.sessionId;
+  if (screencastFrameCount <= 3) {
+    console.log('[VIPSEE:bg] Acking frame #' + screencastFrameCount,
+      '| sessionId:', ackSessionId, '| tabId:', source.tabId);
+  }
   chrome.debugger.sendCommand(source, 'Page.screencastFrameAck', {
-    sessionId: params.sessionId
-  }).catch(() => {});
+    sessionId: ackSessionId
+  }).then(() => {
+    if (screencastFrameCount <= 3) {
+      console.log('[VIPSEE:bg] Ack succeeded for frame #' + screencastFrameCount);
+    }
+  }).catch((err) => {
+    console.error('[VIPSEE:bg] Ack FAILED for frame #' + screencastFrameCount,
+      ':', err.message || err, '| sessionId:', ackSessionId);
+  });
 });
 
 // --- Tab management (Phase 3) ---
