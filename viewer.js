@@ -487,6 +487,34 @@ window.addEventListener('beforeunload', () => {
   cleanup();
 });
 
+// --- Same-window warning ---
+
+// If viewer is in the same window as the host tab, the host tab gets
+// backgrounded and Chrome throttles/freezes its capture stream.
+async function checkSameWindow() {
+  try {
+    const thisTab = await chrome.tabs.getCurrent();
+    const status = await chrome.runtime.sendMessage({ action: 'getStatus' });
+    if (!status || !status.hosting || !thisTab) return;
+
+    // Find the host's captured tab
+    const allTabs = await chrome.tabs.query({ windowId: thisTab.windowId });
+    // We can't know the exact captured tabId from here, but if hosting is
+    // active and this viewer is in the same window, warn.
+    if (allTabs.length > 1) {
+      const warn = document.createElement('div');
+      warn.style.cssText = 'position:fixed;top:44px;left:0;right:0;z-index:20;padding:6px 12px;background:#4a3a1a;color:#f0c055;font-size:12px;text-align:center;font-family:system-ui,sans-serif;';
+      warn.textContent = 'Tip: Move this viewer tab to a separate window for best results (right-click tab \u2192 Move to new window). Same-window hosting may freeze the video.';
+      document.body.appendChild(warn);
+      // Auto-dismiss after 10 seconds
+      setTimeout(() => warn.remove(), 10000);
+    }
+  } catch (e) {
+    // Not critical, ignore
+  }
+}
+checkSameWindow();
+
 // --- Auto-connect if peer ID was provided ---
 
 if (initialPeerId) {

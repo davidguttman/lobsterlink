@@ -50,6 +50,7 @@ One extension, two modes:
 ### Troubleshooting
 
 - **"Extension is debugging this tab" infobar** — expected; Chrome shows this when `chrome.debugger` is attached. Do not dismiss it or input injection will stop.
+- **Black/frozen video (same window)** — In tabCapture mode, if the viewer tab is in the same window as the host tab, Chrome backgrounds and throttles the host tab, killing the capture stream. The viewer must be in a **separate window**. The popup auto-opens the viewer in a new window to avoid this.
 - **No video** — check that the host tab is active when you start hosting. `tabCapture` requires an active tab.
 - **Connection fails** — both machines need to be able to reach `0.peerjs.com:443` and establish a direct WebRTC connection (or have TURN relay). Firewalls/NAT may block this.
 - **Input not working** — click on the video element to focus it. Keyboard events only send when the video is focused.

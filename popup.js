@@ -41,6 +41,10 @@ hostStart.addEventListener('click', async () => {
   const modeLabel = response.captureMode === 'screencast' ? ' (CDP screencast)' : '';
   hostStatus.textContent = 'Hosting' + modeLabel + ' — share the peer ID with the viewer';
   hostStatus.className = 'status ok';
+
+  // Auto-open viewer in a NEW WINDOW to avoid backgrounding the host tab
+  const viewerUrl = chrome.runtime.getURL(`viewer.html?peerId=${encodeURIComponent(response.peerId)}`);
+  chrome.windows.create({ url: viewerUrl, type: 'normal' });
 });
 
 hostStop.addEventListener('click', async () => {
@@ -65,9 +69,9 @@ viewerConnect.addEventListener('click', async () => {
   viewerConnect.disabled = true;
   viewerStatus.textContent = 'Opening viewer...';
 
-  // Open viewer in a new tab
+  // Open viewer in a NEW WINDOW to avoid backgrounding the host tab
   const url = chrome.runtime.getURL(`viewer.html?peerId=${encodeURIComponent(peerId)}`);
-  chrome.tabs.create({ url });
+  chrome.windows.create({ url, type: 'normal' });
 
   // Close popup after short delay
   setTimeout(() => window.close(), 300);
