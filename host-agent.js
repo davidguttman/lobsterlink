@@ -29,6 +29,7 @@
     lastDownTarget: null,
     lastHoverTarget: null
   };
+  let runtimeInvalidated = false;
 
   const inputValueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
   const textareaValueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
@@ -58,17 +59,39 @@
   }
 
   function notifyReady() {
-    chrome.runtime.sendMessage({
+    safeSendMessage({
       action: 'pageAgentReady',
       ...getViewport()
-    }).catch(() => {});
+    });
   }
 
   function notifyViewport() {
-    chrome.runtime.sendMessage({
+    safeSendMessage({
       action: 'pageAgentViewport',
       ...getViewport()
-    }).catch(() => {});
+    });
+  }
+
+  function safeSendMessage(message) {
+    if (runtimeInvalidated) return;
+    try {
+      const pending = chrome.runtime.sendMessage(message);
+      if (pending && typeof pending.catch === 'function') {
+        pending.catch((error) => {
+          const text = error?.message || String(error);
+          if (/Extension context invalidated/i.test(text)) {
+            runtimeInvalidated = true;
+            return;
+          }
+        });
+      }
+    } catch (error) {
+      const text = error?.message || String(error);
+      if (/Extension context invalidated/i.test(text)) {
+        runtimeInvalidated = true;
+        return;
+      }
+    }
   }
 
   function getClassName(el) {
