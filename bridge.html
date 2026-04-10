@@ -94,6 +94,45 @@
       padding: 18px;
     }
 
+    .instruction-card {
+      background:
+        linear-gradient(180deg, rgba(36, 58, 112, 0.94), rgba(21, 33, 64, 0.96)),
+        linear-gradient(180deg, rgba(23, 33, 61, 0.92), rgba(18, 26, 48, 0.94));
+    }
+
+    .instruction-list {
+      margin: 0;
+      padding-left: 18px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .instruction-list li {
+      color: #eaf0ff;
+    }
+
+    .instruction-note {
+      margin-top: 12px;
+      color: #c8d6ff;
+      font-size: 13px;
+    }
+
+    .step-state {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 0 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.16);
+      background: rgba(9, 14, 30, 0.3);
+      color: #d7e2ff;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-left: 8px;
+    }
+
     .span-2 {
       grid-column: span 2;
     }
@@ -431,6 +470,22 @@
     </header>
 
     <main class="layout">
+      <section class="card instruction-card span-3">
+        <div class="card-head">
+          <h2>Agent Steps</h2>
+          <div class="status-pill ok">Use This Order</div>
+        </div>
+        <ol class="instruction-list">
+          <li>Select the website tab in <strong>Target Tab</strong>. <span class="step-state" id="bridge-step-select">Waiting</span></li>
+          <li>Click <strong>Start Host</strong>. Stay on this bridge page. <span class="step-state" id="bridge-step-host">Waiting</span></li>
+          <li>Read <strong>Current Peer ID</strong>. <span class="step-state" id="bridge-step-peer">Waiting</span></li>
+          <li>If needed, click <strong>Show Hosted Tab</strong> to bring the real website tab to the front. <span class="step-state" id="bridge-step-focus">Waiting</span></li>
+        </ol>
+        <div class="instruction-note">
+          <strong>Important:</strong> <strong>Start Host</strong> does not leave this bridge page. Use <strong>Show Hosted Tab</strong> only after the peer ID is visible and you want the real site tab in front.
+        </div>
+      </section>
+
       <section class="card">
         <div class="card-head">
           <h2>Host</h2>
@@ -444,7 +499,8 @@
 
         <div class="actions">
           <button id="bridge-start-host">Start Host</button>
-          <button class="secondary" id="bridge-switch-tab">Switch Captured Tab</button>
+          <button class="secondary" id="bridge-switch-tab">Switch Capture To Selected Tab</button>
+          <button class="secondary" id="bridge-show-hosted-tab">Show Hosted Tab</button>
           <button class="danger" id="bridge-stop-host">Stop Host</button>
         </div>
 

@@ -3,8 +3,9 @@
 //   'tabCapture' — chrome.tabCapture (requires user gesture from popup)
 //   'screencast' — CDP Page.startScreencast (works programmatically)
 
-const SCREENCAST_MAX_WIDTH = 1920;
-const SCREENCAST_MAX_HEIGHT = 1080;
+const SCREENCAST_MAX_WIDTH = 3840;
+const SCREENCAST_MAX_HEIGHT = 2160;
+const SCREENCAST_JPEG_QUALITY = 92;
 const DIAGNOSTIC_LOG_URL = 'http://127.0.0.1:8787/log';
 const HOST_STATE_STORAGE_KEY = 'vipseeHostState';
 
@@ -222,6 +223,20 @@ async function ensurePageAgent(tabId) {
   }
 }
 
+async function getPageDevicePixelRatio(tabId) {
+  if (!tabId) return 1;
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => window.devicePixelRatio || 1
+    });
+    return Number(result?.result) || 1;
+  } catch (e) {
+    console.warn('[VIPSEE:bg] getPageDevicePixelRatio failed:', e.message || e);
+    return 1;
+  }
+}
+
 async function sendPageAgentInput(tabId, evt, attempt = 0) {
   try {
     return await chrome.tabs.sendMessage(tabId, {
@@ -342,9 +357,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const tabId = hostState.capturedTabId;
         try {
           const { width: w, height: h } = await getCurrentViewport(tabId);
-          const capture = getCaptureSize(w, h);
+          const devicePixelRatio = hostState.pageDevicePixelRatio || await getPageDevicePixelRatio(tabId);
+          const capture = getCaptureSize(w, h, devicePixelRatio);
           hostState.screencastWidth = w;
           hostState.screencastHeight = h;
+          hostState.pageDevicePixelRatio = devicePixelRatio;
           await chrome.runtime.sendMessage({
             action: 'offscreen:screencastResize',
             width: capture.width,
@@ -623,7 +640,6 @@ async function startScreencastMode(tabId) {
   hostState.capturedTabId = tabId;
   resetPageAgentState();
 
-  await activateTabWindow(tabId);
   await ensureWindowLargeEnough(tabId);
 
   // Attach debugger (needed for screencast AND input)
@@ -635,12 +651,15 @@ async function startScreencastMode(tabId) {
   // Use the tab's actual CSS viewport. Auto-overriding the viewport on start
   // can make Chrome scale the host tab down, which then makes the viewer look tiny.
   const { width, height } = await getCurrentViewport(tabId);
-  const capture = getCaptureSize(width, height);
+  const devicePixelRatio = await getPageDevicePixelRatio(tabId);
+  const capture = getCaptureSize(width, height, devicePixelRatio);
 
   hostState.screencastWidth = width;
   hostState.screencastHeight = height;
+  hostState.pageDevicePixelRatio = devicePixelRatio;
 
   console.log('[VIPSEE:bg] Screencast viewport:', width, 'x', height,
+    '| dpr:', devicePixelRatio,
     '| capture:', capture.width, 'x', capture.height);
 
   // Set up offscreen document in screencast/canvas mode
@@ -660,7 +679,7 @@ async function startScreencastMode(tabId) {
   // Start CDP screencast at the same dimensions
   await chrome.debugger.sendCommand({ tabId }, 'Page.startScreencast', {
     format: 'jpeg',
-    quality: 80,
+    quality: SCREENCAST_JPEG_QUALITY,
     maxWidth: capture.width,
     maxHeight: capture.height
   });
@@ -803,7 +822,7 @@ async function sendHostMetricsToViewer() {
   }
 }
 
-function getCaptureSize(width, height) {
+function getCaptureSize(width, height, devicePixelRatio = 1) {
   if (!width || !height) {
     return {
       width: SCREENCAST_MAX_WIDTH,
@@ -811,15 +830,19 @@ function getCaptureSize(width, height) {
     };
   }
 
+  const scaleFactor = Math.max(1, Number(devicePixelRatio) || 1);
+  const targetWidth = Math.max(1, Math.round(width * scaleFactor));
+  const targetHeight = Math.max(1, Math.round(height * scaleFactor));
+
   const scale = Math.min(
     1,
-    SCREENCAST_MAX_WIDTH / width,
-    SCREENCAST_MAX_HEIGHT / height
+    SCREENCAST_MAX_WIDTH / targetWidth,
+    SCREENCAST_MAX_HEIGHT / targetHeight
   );
 
   return {
-    width: Math.max(1, Math.round(width * scale)),
-    height: Math.max(1, Math.round(height * scale))
+    width: Math.max(1, Math.round(targetWidth * scale)),
+    height: Math.max(1, Math.round(targetHeight * scale))
   };
 }
 
@@ -843,7 +866,7 @@ async function restartScreencast(tabId, width, height) {
   await chrome.debugger.sendCommand({ tabId }, 'Page.enable');
   await chrome.debugger.sendCommand({ tabId }, 'Page.startScreencast', {
     format: 'jpeg',
-    quality: 80,
+    quality: SCREENCAST_JPEG_QUALITY,
     maxWidth: width,
     maxHeight: height
   });
@@ -1057,6 +1080,10 @@ async function handleControlEvent(evt) {
         await switchTab(evt.tabId);
         break;
 
+      case 'focusTab':
+        await activateTabWindow(evt.tabId || hostState.capturedTabId);
+        break;
+
       case 'newTab':
         await createNewTab(evt.url);
         break;
@@ -1102,7 +1129,9 @@ async function setHostViewport(width, height) {
   hostState.screencastWidth = width;
   hostState.screencastHeight = height;
 
-  const capture = getCaptureSize(width, height);
+  const devicePixelRatio = hostState.pageDevicePixelRatio || await getPageDevicePixelRatio(tabId);
+  hostState.pageDevicePixelRatio = devicePixelRatio;
+  const capture = getCaptureSize(width, height, devicePixelRatio);
 
   // Resize canvas in offscreen doc
   await chrome.runtime.sendMessage({
@@ -1161,9 +1190,11 @@ async function switchTab(tabId) {
 
     // Get new page dimensions
     const { width, height } = await getCurrentViewport(tabId);
-    const capture = getCaptureSize(width, height);
+    const devicePixelRatio = await getPageDevicePixelRatio(tabId);
+    const capture = getCaptureSize(width, height, devicePixelRatio);
     hostState.screencastWidth = width;
     hostState.screencastHeight = height;
+    hostState.pageDevicePixelRatio = devicePixelRatio;
 
     // Resize canvas in offscreen doc
     await chrome.runtime.sendMessage({
@@ -1340,13 +1371,18 @@ async function retryAttachDebugger(maxRetries, delayMs) {
         if (hostState.debuggerAttached) {
           // If in screencast mode, restart the screencast
           if (hostState.captureMode === 'screencast') {
-            const layoutMetrics = await chrome.debugger.sendCommand(
-              { tabId: tab.id }, 'Page.getLayoutMetrics'
-            );
+            const { width, height } = await getCurrentViewport(tab.id);
+            const devicePixelRatio = hostState.pageDevicePixelRatio || await getPageDevicePixelRatio(tab.id);
+            const capture = getCaptureSize(width, height, devicePixelRatio);
+            hostState.screencastWidth = width;
+            hostState.screencastHeight = height;
+            hostState.pageDevicePixelRatio = devicePixelRatio;
             await chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.enable');
             await chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.startScreencast', {
-              format: 'jpeg', quality: 80,
-              maxWidth: SCREENCAST_MAX_WIDTH, maxHeight: SCREENCAST_MAX_HEIGHT
+              format: 'jpeg',
+              quality: SCREENCAST_JPEG_QUALITY,
+              maxWidth: capture.width,
+              maxHeight: capture.height
             });
           }
           console.log('[VIPSEE:bg] Reattach succeeded on attempt', i + 1);

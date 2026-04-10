@@ -3,6 +3,7 @@ const statusEls = {
   hostTabSelect: document.getElementById('bridge-host-tab-select'),
   startHost: document.getElementById('bridge-start-host'),
   switchTab: document.getElementById('bridge-switch-tab'),
+  showHostedTab: document.getElementById('bridge-show-hosted-tab'),
   stopHost: document.getElementById('bridge-stop-host'),
   peerId: document.getElementById('bridge-peer-id'),
   openViewer: document.getElementById('bridge-open-viewer'),
@@ -24,7 +25,11 @@ const statusEls = {
   clearDiagnostics: document.getElementById('bridge-clear-diagnostics'),
   lastErrorBadge: document.getElementById('bridge-last-error-badge'),
   lastError: document.getElementById('bridge-last-error'),
-  diagnosticsLog: document.getElementById('bridge-diagnostics-log')
+  diagnosticsLog: document.getElementById('bridge-diagnostics-log'),
+  stepSelect: document.getElementById('bridge-step-select'),
+  stepHost: document.getElementById('bridge-step-host'),
+  stepPeer: document.getElementById('bridge-step-peer'),
+  stepFocus: document.getElementById('bridge-step-focus')
 };
 
 const state = {
@@ -188,14 +193,56 @@ function renderStatus() {
   const canStop = Boolean(status.hosting);
   const canOpenViewer = Boolean(status.peerId);
   const canApplyViewport = Boolean(status.hosting && status.captureMode === 'screencast');
+  const canShowHostedTab = Boolean(status.hosting && status.capturedTabId);
 
   statusEls.startHost.disabled = !canStart;
   statusEls.switchTab.disabled = !canSwitch;
+  statusEls.showHostedTab.disabled = !canShowHostedTab;
   statusEls.stopHost.disabled = !canStop;
   statusEls.openViewer.disabled = !canOpenViewer;
   statusEls.openCurrentViewer.disabled = !canOpenViewer;
   statusEls.copyPeerId.disabled = !canOpenViewer;
   statusEls.applyViewport.disabled = !canApplyViewport || !statusEls.viewportSelect.value;
+
+  renderAgentSteps();
+}
+
+function setStep(el, text, tone) {
+  el.textContent = text;
+  el.style.background = tone === 'ok'
+    ? 'rgba(47, 199, 161, 0.18)'
+    : tone === 'warn'
+      ? 'rgba(255, 191, 95, 0.18)'
+      : 'rgba(9, 14, 30, 0.3)';
+  el.style.color = tone === 'ok'
+    ? '#aaf0ca'
+    : tone === 'warn'
+      ? '#ffe0a8'
+      : '#d7e2ff';
+  el.style.borderColor = tone === 'ok'
+    ? 'rgba(47, 199, 161, 0.45)'
+    : tone === 'warn'
+      ? 'rgba(255, 191, 95, 0.45)'
+      : 'rgba(255,255,255,0.16)';
+}
+
+function renderAgentSteps() {
+  const status = state.status || {};
+  const selectedTabId = getSelectedTabId();
+  const hasSelectedTab = Number.isFinite(selectedTabId);
+  const selectedMatchesCaptured = hasSelectedTab && selectedTabId === status.capturedTabId;
+
+  setStep(statusEls.stepSelect, hasSelectedTab ? `Selected #${selectedTabId}` : 'Waiting', hasSelectedTab ? 'ok' : '');
+  setStep(statusEls.stepHost, status.hosting ? 'Hosting' : 'Waiting', status.hosting ? 'ok' : '');
+  setStep(statusEls.stepPeer, status.peerId ? 'Ready' : 'Waiting', status.peerId ? 'ok' : '');
+
+  if (!status.hosting || !status.capturedTabId) {
+    setStep(statusEls.stepFocus, 'Waiting', '');
+  } else if (selectedMatchesCaptured) {
+    setStep(statusEls.stepFocus, `Ready For #${status.capturedTabId}`, 'warn');
+  } else {
+    setStep(statusEls.stepFocus, `Hosted #${status.capturedTabId}`, 'warn');
+  }
 }
 
 function renderTabsTable() {
@@ -385,6 +432,21 @@ async function switchCapturedTab(tabId) {
   setHostMessage(`Switched captured tab to ${tabId}.`, 'ok');
 }
 
+async function showHostedTab() {
+  const tabId = state.status?.capturedTabId;
+  if (!tabId) {
+    throw new Error('No captured tab is active.');
+  }
+  await chrome.runtime.sendMessage({
+    action: 'controlEvent',
+    event: {
+      type: 'focusTab',
+      tabId
+    }
+  });
+  setHostMessage(`Focused hosted tab ${tabId}.`, 'ok');
+}
+
 async function applyViewport(viewport) {
   const [width, height] = viewport.split('x').map(Number);
   if (!width || !height) {
@@ -462,6 +524,10 @@ function bindControls() {
       return;
     }
     withAction('switch_tab', () => switchCapturedTab(tabId)).catch(() => {});
+  });
+
+  statusEls.showHostedTab.addEventListener('click', () => {
+    withAction('show_hosted_tab', () => showHostedTab()).catch(() => {});
   });
 
   statusEls.stopHost.addEventListener('click', () => {
