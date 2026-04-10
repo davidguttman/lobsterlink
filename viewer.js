@@ -196,6 +196,8 @@ function updateDebugPanel() {
     `host window: ${hostMetrics?.windowWidth ?? 'n/a'}x${hostMetrics?.windowHeight ?? 'n/a'}`,
     `host tab: ${hostMetrics?.tabWidth ?? 'n/a'}x${hostMetrics?.tabHeight ?? 'n/a'}`,
     `host viewport: ${hostMetrics?.viewportWidth ?? 'n/a'}x${hostMetrics?.viewportHeight ?? 'n/a'}`,
+    `host visual viewport: ${hostMetrics?.visualViewportWidth ?? 'n/a'}x${hostMetrics?.visualViewportHeight ?? 'n/a'} @ ${hostMetrics?.visualViewportOffsetLeft ?? 'n/a'},${hostMetrics?.visualViewportOffsetTop ?? 'n/a'} scale ${hostMetrics?.visualViewportScale ?? 'n/a'}`,
+    `host dpr: ${hostMetrics?.devicePixelRatio ?? 'n/a'}`,
     `remote viewport: ${remoteViewport.width}x${remoteViewport.height}`,
     `input viewport: ${inputViewport.width}x${inputViewport.height}`,
     `video intrinsic: ${video.videoWidth || 0}x${video.videoHeight || 0}`,
@@ -426,8 +428,8 @@ function clamp(value, min, max) {
 }
 
 function getInputViewportSize() {
-  const width = hostMetrics?.viewportWidth;
-  const height = hostMetrics?.viewportHeight;
+  const width = hostMetrics?.visualViewportWidth || hostMetrics?.viewportWidth;
+  const height = hostMetrics?.visualViewportHeight || hostMetrics?.viewportHeight;
   if (width > 0 && height > 0) {
     return { width, height };
   }
@@ -448,9 +450,34 @@ function getSourceFrameSize() {
 function getSourceContentRect() {
   const frame = getSourceFrameSize();
   const viewport = getInputViewportSize();
+  const devicePixelRatio = Math.max(1, hostMetrics?.devicePixelRatio || 1);
 
   if (!frame.width || !frame.height || !viewport.width || !viewport.height) {
     return { x: 0, y: 0, width: frame.width || 1, height: frame.height || 1 };
+  }
+
+  const expectedWidth = Math.max(1, viewport.width * devicePixelRatio);
+  const expectedHeight = Math.max(1, viewport.height * devicePixelRatio);
+
+  if (expectedWidth > 0 && expectedHeight > 0) {
+    let contentWidth = expectedWidth;
+    let contentHeight = expectedHeight;
+
+    if (frame.width < expectedWidth || frame.height < expectedHeight) {
+      const scale = Math.min(frame.width / expectedWidth, frame.height / expectedHeight);
+      contentWidth = expectedWidth * scale;
+      contentHeight = expectedHeight * scale;
+    }
+
+    if (contentWidth > 0 && contentHeight > 0 &&
+        contentWidth <= frame.width + 1 && contentHeight <= frame.height + 1) {
+      return {
+        x: (frame.width - contentWidth) / 2,
+        y: (frame.height - contentHeight) / 2,
+        width: contentWidth,
+        height: contentHeight
+      };
+    }
   }
 
   const frameAspect = frame.width / frame.height;
@@ -539,8 +566,8 @@ function mapCoords(e) {
   const localX = clamp(e.clientX - rect.left, 0, safeWidth);
   const localY = clamp(e.clientY - rect.top, 0, safeHeight);
 
-  const x = Math.round((localX / safeWidth) * inputViewport.width);
-  const y = Math.round((localY / safeHeight) * inputViewport.height);
+  const x = clamp(Math.round((localX / safeWidth) * inputViewport.width), 0, Math.max(0, inputViewport.width - 1));
+  const y = clamp(Math.round((localY / safeHeight) * inputViewport.height), 0, Math.max(0, inputViewport.height - 1));
 
   if (isNaN(x) || isNaN(y) || x < -100 || y < -100 ||
       x > inputViewport.width + 100 || y > inputViewport.height + 100) {

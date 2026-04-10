@@ -44,10 +44,16 @@
   }
 
   function getViewport() {
+    const vv = window.visualViewport;
     return {
       width: window.innerWidth || document.documentElement.clientWidth || 0,
       height: window.innerHeight || document.documentElement.clientHeight || 0,
-      devicePixelRatio: window.devicePixelRatio || 1
+      devicePixelRatio: window.devicePixelRatio || 1,
+      visualViewportWidth: vv ? vv.width : null,
+      visualViewportHeight: vv ? vv.height : null,
+      visualViewportOffsetLeft: vv ? vv.offsetLeft : null,
+      visualViewportOffsetTop: vv ? vv.offsetTop : null,
+      visualViewportScale: vv ? vv.scale : null
     };
   }
 
@@ -709,6 +715,10 @@
   });
 
   window.addEventListener('resize', notifyViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', notifyViewport);
+    window.visualViewport.addEventListener('scroll', notifyViewport);
+  }
   window.addEventListener('pagehide', () => observer.disconnect(), { once: true });
 
   notifyReady();

@@ -21,7 +21,12 @@ const DEFAULT_HOST_STATE = {
   pageAgentReady: false,
   pageViewportWidth: null,
   pageViewportHeight: null,
-  pageDevicePixelRatio: null
+  pageDevicePixelRatio: null,
+  pageVisualViewportWidth: null,
+  pageVisualViewportHeight: null,
+  pageVisualViewportOffsetLeft: null,
+  pageVisualViewportOffsetTop: null,
+  pageVisualViewportScale: null
 };
 
 let hostState = { ...DEFAULT_HOST_STATE };
@@ -54,7 +59,12 @@ function serializeHostState() {
     pageAgentReady: hostState.pageAgentReady,
     pageViewportWidth: hostState.pageViewportWidth,
     pageViewportHeight: hostState.pageViewportHeight,
-    pageDevicePixelRatio: hostState.pageDevicePixelRatio
+    pageDevicePixelRatio: hostState.pageDevicePixelRatio,
+    pageVisualViewportWidth: hostState.pageVisualViewportWidth,
+    pageVisualViewportHeight: hostState.pageVisualViewportHeight,
+    pageVisualViewportOffsetLeft: hostState.pageVisualViewportOffsetLeft,
+    pageVisualViewportOffsetTop: hostState.pageVisualViewportOffsetTop,
+    pageVisualViewportScale: hostState.pageVisualViewportScale
   };
 }
 
@@ -203,6 +213,11 @@ function resetPageAgentState() {
   hostState.pageViewportWidth = null;
   hostState.pageViewportHeight = null;
   hostState.pageDevicePixelRatio = null;
+  hostState.pageVisualViewportWidth = null;
+  hostState.pageVisualViewportHeight = null;
+  hostState.pageVisualViewportOffsetLeft = null;
+  hostState.pageVisualViewportOffsetTop = null;
+  hostState.pageVisualViewportScale = null;
 }
 
 async function ensurePageAgent(tabId) {
@@ -312,6 +327,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         hostState.pageViewportWidth = msg.width || null;
         hostState.pageViewportHeight = msg.height || null;
         hostState.pageDevicePixelRatio = msg.devicePixelRatio || null;
+        hostState.pageVisualViewportWidth = msg.visualViewportWidth || null;
+        hostState.pageVisualViewportHeight = msg.visualViewportHeight || null;
+        hostState.pageVisualViewportOffsetLeft = msg.visualViewportOffsetLeft || null;
+        hostState.pageVisualViewportOffsetTop = msg.visualViewportOffsetTop || null;
+        hostState.pageVisualViewportScale = msg.visualViewportScale || null;
         await persistHostState();
         logDiagnostic('page_agent_ready', {
           tabId: sender.tab.id,
@@ -331,6 +351,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         hostState.pageViewportWidth = msg.width || null;
         hostState.pageViewportHeight = msg.height || null;
         hostState.pageDevicePixelRatio = msg.devicePixelRatio || null;
+        hostState.pageVisualViewportWidth = msg.visualViewportWidth || null;
+        hostState.pageVisualViewportHeight = msg.visualViewportHeight || null;
+        hostState.pageVisualViewportOffsetLeft = msg.visualViewportOffsetLeft || null;
+        hostState.pageVisualViewportOffsetTop = msg.visualViewportOffsetTop || null;
+        hostState.pageVisualViewportScale = msg.visualViewportScale || null;
         await persistHostState();
         if (hostState.viewerConnected) {
           sendHostMetricsToViewer(true).catch(() => {});
@@ -640,6 +665,7 @@ async function startScreencastMode(tabId) {
   hostState.capturedTabId = tabId;
   resetPageAgentState();
 
+  await resetTabZoom(tabId);
   await ensureWindowLargeEnough(tabId);
 
   // Attach debugger (needed for screencast AND input)
@@ -807,7 +833,12 @@ async function collectHostMetrics() {
       tabHeight: tab.height || null,
       viewportWidth: hostState.pageViewportWidth || hostState.screencastWidth || tab.width || null,
       viewportHeight: hostState.pageViewportHeight || hostState.screencastHeight || tab.height || null,
-      devicePixelRatio: hostState.pageDevicePixelRatio || null
+      devicePixelRatio: hostState.pageDevicePixelRatio || null,
+      visualViewportWidth: hostState.pageVisualViewportWidth || null,
+      visualViewportHeight: hostState.pageVisualViewportHeight || null,
+      visualViewportOffsetLeft: hostState.pageVisualViewportOffsetLeft || null,
+      visualViewportOffsetTop: hostState.pageVisualViewportOffsetTop || null,
+      visualViewportScale: hostState.pageVisualViewportScale || null
     };
   } catch (e) {
     console.warn('[VIPSEE:bg] collectHostMetrics failed:', e.message || e);
@@ -1184,6 +1215,7 @@ async function switchTab(tabId) {
 
     // Activate and capture new tab
     await activateTabWindow(tabId);
+    await resetTabZoom(tabId);
     hostState.capturedTabId = tabId;
 
     await attachDebugger(tabId);

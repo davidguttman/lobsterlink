@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Vipsee",
-  "version": "4.10.13.47",
+  "version": "4.10.13.52",
   "description": "Remote browser tab viewing and control via WebRTC",
   "permissions": [
     "tabCapture",
