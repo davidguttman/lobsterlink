@@ -1053,7 +1053,8 @@ function teardownTabListeners() {
 
 async function sendTabListToViewer() {
   try {
-    const tabs = await chrome.tabs.query({ currentWindow: true });
+    const tabs = (await chrome.tabs.query({ currentWindow: true }))
+      .filter((tab) => !isForbiddenTab(tab));
     sendToViewer({
       type: 'tabList',
       tabs: tabs.map(t => ({
