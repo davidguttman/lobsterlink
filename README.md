@@ -246,3 +246,12 @@ Host browser                        Viewer
 - `debugger` — inject input events and run screencast via CDP
 - `activeTab` — access active tab on user gesture
 - `offscreen` — handle media and rendering work offscreen
+
+## Public web client
+
+The `client/` directory is a plain static version of the viewer. It contains the same
+`viewer.html` / `viewer.js` as the extension, packaged as static files (`index.html`,
+`viewer.js`, `lib/peerjs.min.js`) that can be served by any static file host so anyone
+with a host peer ID can connect from a browser without installing the extension.
+
+See `client/README.md` for the file layout and a local preview command.
