@@ -77,6 +77,18 @@ chrome.runtime.sendMessage({ action: 'startHostingCDP', tabId: 123 });
 
 Automation-only host start uses CDP `Page.startScreencast` instead of `tabCapture`.
 
+## OpenClaw Agent Integration
+
+This repo includes an OpenClaw-friendly prompt and skill:
+
+- `openclaw/vipsee-tab-share/INSTALL-PROMPT.md` — install Vipsee into the isolated `openclaw` browser profile
+- `openclaw/vipsee-tab-share/SKILL.md` — use Vipsee reliably for hosted authenticated-tab sharing
+
+The intended agent flow is:
+1. clone this repo on the OpenClaw host
+2. use `INSTALL-PROMPT.md` once to patch `openclaw.json` and load the unpacked extension
+3. use the `vipsee-tab-share` skill for actual hosting and peer-ID workflows
+
 ## Requirements
 
 - Chrome (not headless — `tabCapture` needs a headed browser)
