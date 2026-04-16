@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LobsterLink</title>
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦞</text></svg>">
+  <meta name="description" content="Let a human complete blocked steps in an agent's browser, without sharing credentials.">
+  <meta property="og:title" content="LobsterLink">
+  <meta property="og:description" content="Let a human complete blocked steps in an agent's browser, without sharing credentials.">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="LobsterLink">
+  <meta name="twitter:description" content="Let a human complete blocked steps in an agent's browser, without sharing credentials.">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      background: #000;
+      color: #e0e0e0;
+      font-family: system-ui, sans-serif;
+      overflow: hidden;
+    }
+
+    #nav-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      background: #1a1a2e;
+      border-bottom: 1px solid #333;
+      height: 40px;
+    }
+    .nav-btn {
+      background: #16213e;
+      border: 1px solid #333;
+      color: #ccc;
+      border-radius: 4px;
+      width: 30px; height: 28px;
+      cursor: pointer; font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .nav-btn:hover { background: #1a1a4e; border-color: #5568f0; }
+    .nav-btn.danger:hover { border-color: #f05555; }
+    .mobile-only { display: none; }
+
+    #url-bar {
+      flex: 1; min-width: 0;
+      background: #0f0f23; border: 1px solid #333; border-radius: 4px;
+      color: #fff; padding: 4px 8px; font-size: 13px; height: 28px;
+    }
+    #url-bar:focus { border-color: #5568f0; outline: none; }
+
+    #tab-select, #viewport-select {
+      max-width: 200px; background: #0f0f23; border: 1px solid #333;
+      border-radius: 4px; color: #fff; padding: 2px 4px; font-size: 12px;
+      height: 28px; flex-shrink: 0;
+    }
+
+    #connection-status {
+      font-size: 11px; padding: 2px 8px; border-radius: 10px;
+      background: #333; color: #888; white-space: nowrap; flex-shrink: 0;
+    }
+    #connection-status.connected { background: #1a4a1a; color: #55f068; }
+    #connection-status.connecting { background: #4a3a1a; color: #f0c055; }
+    #connection-status.reconnecting { background: #4a2a1a; color: #f09055; }
+    #connection-status.error { background: #4a1a1a; color: #f05555; }
+
+    #video-container {
+      width: 100vw;
+      height: calc(100vh - 40px);
+      background: #000;
+      position: relative;
+      overflow: hidden;
+      touch-action: none;
+      overscroll-behavior: contain;
+    }
+    #remote-video {
+      display: block;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: auto;
+      height: auto;
+      max-width: none;
+      max-height: none;
+      touch-action: none;
+      overscroll-behavior: contain;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    .mobile-keyboard-input {
+      position: fixed;
+      left: 0;
+      bottom: 0;
+      width: 1px;
+      height: 1px;
+      opacity: 0.01;
+      border: 0;
+      outline: none;
+      padding: 0;
+      margin: 0;
+      resize: none;
+      pointer-events: none;
+      background: transparent;
+      color: transparent;
+      caret-color: transparent;
+      z-index: -1;
+    }
+
+    @media (pointer: coarse), (hover: none) {
+      .mobile-only { display: flex; }
+    }
+
+    #connect-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      background: rgba(0,0,0,0.85);
+      z-index: 10;
+    }
+    #connect-overlay.hidden { display: none; }
+    #connect-overlay input {
+      width: 280px; padding: 10px; border: 1px solid #333; border-radius: 6px;
+      background: #0f0f23; color: #fff; font-size: 15px; text-align: center;
+    }
+    #connect-overlay button {
+      padding: 10px 32px; border: none; border-radius: 6px;
+      background: #5568f0; color: #fff; font-size: 14px; cursor: pointer;
+    }
+    #connect-overlay button:hover { background: #4455cc; }
+    #connect-overlay .msg { font-size: 13px; color: #888; }
+    #connect-overlay .error { color: #f05555; font-size: 13px; }
+
+    #debug-panel {
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      z-index: 5;
+      min-width: 260px;
+      max-width: min(420px, calc(100vw - 24px));
+      padding: 8px 10px;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 6px;
+      background: rgba(8, 12, 22, 0.82);
+      color: #d6dfef;
+      font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: pre-wrap;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="nav-bar">
+    <button class="nav-btn" id="btn-back" title="Back">&#9664;</button>
+    <button class="nav-btn" id="btn-forward" title="Forward">&#9654;</button>
+    <button class="nav-btn" id="btn-reload" title="Reload">&#8635;</button>
+    <input type="text" id="url-bar" placeholder="URL" />
+    <select id="tab-select" title="Switch tab"></select>
+    <button class="nav-btn" id="btn-new-tab" title="New tab">+</button>
+    <button class="nav-btn danger" id="btn-close-tab" title="Close current tab">&#10005;</button>
+    <select id="viewport-select" title="Host viewport size">
+      <option value="">Viewport</option>
+      <option value="1920x1080">1920x1080</option>
+      <option value="1280x720">1280x720</option>
+      <option value="1024x768">1024x768</option>
+    </select>
+    <button class="nav-btn mobile-only" id="btn-mobile-keyboard" title="Mobile keyboard">⌨</button>
+    <span id="connection-status">Disconnected</span>
+  </div>
+
+  <div id="video-container">
+    <video id="remote-video" autoplay playsinline muted></video>
+    <textarea id="mobile-keyboard-input" class="mobile-keyboard-input" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+    <pre id="debug-panel"></pre>
+
+    <div id="connect-overlay">
+      <h2 style="color:#fff;">Connect to Host</h2>
+      <input type="text" id="overlay-peer-input" placeholder="Enter host peer ID" />
+      <button id="overlay-connect">Connect</button>
+      <div class="msg" id="overlay-msg"></div>
+      <div class="error" id="overlay-error"></div>
+    </div>
+  </div>
+  <script src="../lib/peerjs.min.js"></script>
+  <script src="../viewer.js"></script>
+</body>
+</html>

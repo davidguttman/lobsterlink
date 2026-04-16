@@ -15,181 +15,274 @@
   <meta name="twitter:description" content="Let a human complete blocked steps in an agent's browser, without sharing credentials.">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+
     html, body {
-      height: 100%;
-      background: #000;
-      color: #e0e0e0;
+      min-height: 100%;
+      background:
+        radial-gradient(circle at top left, rgba(95, 140, 255, 0.14), transparent 34%),
+        radial-gradient(circle at top right, rgba(47, 199, 161, 0.10), transparent 30%),
+        linear-gradient(180deg, #0b1020 0%, #0d1326 100%);
+      color: #e8eefc;
       font-family: system-ui, sans-serif;
-      overflow: hidden;
     }
 
-    #nav-bar {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 10px;
-      background: #1a1a2e;
-      border-bottom: 1px solid #333;
-      height: 40px;
-    }
-    .nav-btn {
-      background: #16213e;
-      border: 1px solid #333;
-      color: #ccc;
-      border-radius: 4px;
-      width: 30px; height: 28px;
-      cursor: pointer; font-size: 14px;
-      display: flex; align-items: center; justify-content: center;
-      flex-shrink: 0;
-    }
-    .nav-btn:hover { background: #1a1a4e; border-color: #5568f0; }
-    .nav-btn.danger:hover { border-color: #f05555; }
-    .mobile-only { display: none; }
-
-    #url-bar {
-      flex: 1; min-width: 0;
-      background: #0f0f23; border: 1px solid #333; border-radius: 4px;
-      color: #fff; padding: 4px 8px; font-size: 13px; height: 28px;
-    }
-    #url-bar:focus { border-color: #5568f0; outline: none; }
-
-    #tab-select, #viewport-select {
-      max-width: 200px; background: #0f0f23; border: 1px solid #333;
-      border-radius: 4px; color: #fff; padding: 2px 4px; font-size: 12px;
-      height: 28px; flex-shrink: 0;
+    body {
+      padding: 56px 24px 72px;
     }
 
-    #connection-status {
-      font-size: 11px; padding: 2px 8px; border-radius: 10px;
-      background: #333; color: #888; white-space: nowrap; flex-shrink: 0;
-    }
-    #connection-status.connected { background: #1a4a1a; color: #55f068; }
-    #connection-status.connecting { background: #4a3a1a; color: #f0c055; }
-    #connection-status.reconnecting { background: #4a2a1a; color: #f09055; }
-    #connection-status.error { background: #4a1a1a; color: #f05555; }
-
-    #video-container {
-      width: 100vw;
-      height: calc(100vh - 40px);
-      background: #000;
-      position: relative;
-      overflow: hidden;
-      touch-action: none;
-      overscroll-behavior: contain;
-    }
-    #remote-video {
-      display: block;
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: auto;
-      height: auto;
-      max-width: none;
-      max-height: none;
-      touch-action: none;
-      overscroll-behavior: contain;
-      -webkit-user-select: none;
-      user-select: none;
-    }
-
-    .mobile-keyboard-input {
-      position: fixed;
-      left: 0;
-      bottom: 0;
-      width: 1px;
-      height: 1px;
-      opacity: 0.01;
-      border: 0;
-      outline: none;
-      padding: 0;
-      margin: 0;
-      resize: none;
-      pointer-events: none;
-      background: transparent;
-      color: transparent;
-      caret-color: transparent;
-      z-index: -1;
-    }
-
-    @media (pointer: coarse), (hover: none) {
-      .mobile-only { display: flex; }
-    }
-
-    #connect-overlay {
-      position: absolute;
-      inset: 0;
+    .landing-inner {
+      max-width: 720px;
+      margin: 0 auto;
       display: flex;
       flex-direction: column;
+      gap: 56px;
+    }
+
+    .eyebrow {
+      margin: 0 0 14px;
+      color: #2fc7a1;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 36px;
+      line-height: 1.15;
+      font-weight: 700;
+      color: #fff;
+      max-width: 640px;
+    }
+
+    .steps {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .steps li {
+      display: flex;
+      align-items: flex-start;
+      gap: 18px;
+    }
+
+    .step-num {
+      flex: 0 0 auto;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(180deg, #6994ff, #4b71dc);
+      color: #fff;
+      font-weight: 700;
+      font-size: 15px;
+      display: flex;
       align-items: center;
       justify-content: center;
-      gap: 12px;
-      background: rgba(0,0,0,0.85);
-      z-index: 10;
     }
-    #connect-overlay.hidden { display: none; }
-    #connect-overlay input {
-      width: 280px; padding: 10px; border: 1px solid #333; border-radius: 6px;
-      background: #0f0f23; color: #fff; font-size: 15px; text-align: center;
-    }
-    #connect-overlay button {
-      padding: 10px 32px; border: none; border-radius: 6px;
-      background: #5568f0; color: #fff; font-size: 14px; cursor: pointer;
-    }
-    #connect-overlay button:hover { background: #4455cc; }
-    #connect-overlay .msg { font-size: 13px; color: #888; }
-    #connect-overlay .error { color: #f05555; font-size: 13px; }
 
-    #debug-panel {
-      position: absolute;
-      left: 12px;
-      bottom: 12px;
-      z-index: 5;
-      min-width: 260px;
-      max-width: min(420px, calc(100vw - 24px));
-      padding: 8px 10px;
-      border: 1px solid rgba(255,255,255,0.15);
+    .step-text {
+      font-size: 17px;
+      line-height: 1.45;
+      color: #e8eefc;
+      padding-top: 6px;
+    }
+
+    .step-text code {
+      background: rgba(95, 140, 255, 0.14);
+      color: #b8ccff;
+      padding: 2px 6px;
       border-radius: 6px;
-      background: rgba(8, 12, 22, 0.82);
-      color: #d6dfef;
-      font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      white-space: pre-wrap;
-      pointer-events: none;
+      font: 0.92em/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .cta-block {
+      background: linear-gradient(180deg, rgba(36, 58, 112, 0.78), rgba(21, 33, 64, 0.9));
+      border: 1px solid rgba(95, 140, 255, 0.35);
+      border-radius: 18px;
+      padding: 28px 24px;
+      text-align: center;
+    }
+
+    .cta-lead {
+      margin: 0 0 18px;
+      color: #c8d6ff;
+      font-size: 14px;
+    }
+
+    .cta-btn {
+      border: none;
+      padding: 14px 24px;
+      border-radius: 12px;
+      background: linear-gradient(180deg, #6994ff, #4b71dc);
+      color: #fff;
+      font: 600 15px/1 system-ui, sans-serif;
+      cursor: pointer;
+      transition: filter 0.12s ease, background 0.2s ease;
+    }
+
+    .cta-btn:hover { filter: brightness(1.08); }
+    .cta-btn.copied {
+      background: linear-gradient(180deg, #3fd6a9, #25a583);
+    }
+
+    .faq {
+      display: flex;
+      flex-direction: column;
+      gap: 26px;
+    }
+
+    .faq h2 {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 700;
+      color: #8d9cc4;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .qa {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .qa h3 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 600;
+      color: #e8eefc;
+    }
+
+    .qa p {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.55;
+      color: #b0bcd8;
+    }
+
+    .landing-footer {
+      padding-top: 24px;
+      border-top: 1px solid rgba(55, 74, 126, 0.5);
+      font-size: 14px;
+      color: #8d9cc4;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .landing-footer a {
+      color: #b8ccff;
+      text-decoration: none;
+    }
+
+    .landing-footer a:hover {
+      color: #e8eefc;
+      text-decoration: underline;
+    }
+
+    @media (max-width: 680px) {
+      body { padding: 36px 20px 56px; }
+      .landing-inner { gap: 44px; }
+      h1 { font-size: 26px; }
+      .step-text { font-size: 16px; }
     }
   </style>
 </head>
 <body>
-  <div id="nav-bar">
-    <button class="nav-btn" id="btn-back" title="Back">&#9664;</button>
-    <button class="nav-btn" id="btn-forward" title="Forward">&#9654;</button>
-    <button class="nav-btn" id="btn-reload" title="Reload">&#8635;</button>
-    <input type="text" id="url-bar" placeholder="URL" />
-    <select id="tab-select" title="Switch tab"></select>
-    <button class="nav-btn" id="btn-new-tab" title="New tab">+</button>
-    <button class="nav-btn danger" id="btn-close-tab" title="Close current tab">&#10005;</button>
-    <select id="viewport-select" title="Host viewport size">
-      <option value="">Viewport</option>
-      <option value="1920x1080">1920x1080</option>
-      <option value="1280x720">1280x720</option>
-      <option value="1024x768">1024x768</option>
-    </select>
-    <button class="nav-btn mobile-only" id="btn-mobile-keyboard" title="Mobile keyboard">⌨</button>
-    <span id="connection-status">Disconnected</span>
-  </div>
+  <script>
+    (function () {
+      var host = new URLSearchParams(location.search).get('host');
+      if (host) location.replace('/viewer/' + location.search);
+    })();
+  </script>
+  <div class="landing-inner">
+    <header>
+      <p class="eyebrow">LobsterLink</p>
+      <h1>Let a human complete blocked steps in an agent's browser, without sharing credentials.</h1>
+    </header>
 
-  <div id="video-container">
-    <video id="remote-video" autoplay playsinline muted></video>
-    <textarea id="mobile-keyboard-input" class="mobile-keyboard-input" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
-    <pre id="debug-panel"></pre>
+    <ol class="steps">
+      <li>
+        <span class="step-num">1</span>
+        <span class="step-text">Your agent hits a login, 2FA, or CAPTCHA wall.</span>
+      </li>
+      <li>
+        <span class="step-num">2</span>
+        <span class="step-text">It sends you a <code>lobsterl.ink/?host=…</code> link.</span>
+      </li>
+      <li>
+        <span class="step-num">3</span>
+        <span class="step-text">You open it, finish the step, close the tab. The agent keeps going.</span>
+      </li>
+    </ol>
 
-    <div id="connect-overlay">
-      <h2 style="color:#fff;">Connect to Host</h2>
-      <input type="text" id="overlay-peer-input" placeholder="Enter host peer ID" />
-      <button id="overlay-connect">Connect</button>
-      <div class="msg" id="overlay-msg"></div>
-      <div class="error" id="overlay-error"></div>
+    <div class="cta-block">
+      <p class="cta-lead">Don't have LobsterLink yet? Tell your agent to install it.</p>
+      <button id="copy-install" class="cta-btn">Copy install instructions for my agent</button>
     </div>
+
+    <section class="faq">
+      <h2>Questions</h2>
+
+      <div class="qa">
+        <h3>How does this actually work?</h3>
+        <p>LobsterLink is a Chrome extension that lives in your agent's browser. When the agent gets blocked, it opens a WebRTC tunnel so you can see and control one tab — not the rest of the agent's machine, and nothing on yours.</p>
+      </div>
+
+      <div class="qa">
+        <h3>Is this secure?</h3>
+        <p>The link only exposes a single browser tab. The agent can't see your desktop, your tabs, or your files. You can't see its other tabs either. No credentials change hands, and WebRTC is encrypted end-to-end.</p>
+      </div>
+
+      <div class="qa">
+        <h3>Is the link itself a secret?</h3>
+        <p>Yes — treat it like a password. Anyone with the link can view the tab, so only share it with the person you want helping you. The host ID in the URL is a random 122-bit UUID, one of about 5&nbsp;×&nbsp;10<sup>36</sup> possible values. Guessing one at random is about as likely as being hit by an asteroid six times in a row.</p>
+      </div>
+
+      <div class="qa">
+        <h3>What happens when my agent installs this?</h3>
+        <p>Your agent downloads an unpacked Chrome extension and loads it into the browser it controls. It takes about a minute, and it's all on the agent's side — you don't install anything.</p>
+      </div>
+
+      <div class="qa">
+        <h3>Is this magic?</h3>
+        <p>No. It's Chrome's remote-debugging protocol streamed over WebRTC. The trick is letting a human drop into a single tab of an otherwise-autonomous browser session, finish the blocked step, and leave.</p>
+      </div>
+    </section>
+
+    <footer class="landing-footer">
+      <span>LobsterLink</span>
+      <a href="https://github.com/davidguttman/lobsterlink">GitHub →</a>
+    </footer>
   </div>
-  <script src="lib/peerjs.min.js"></script>
-  <script src="viewer.js"></script>
+
+  <script>
+    (function () {
+      var btn = document.getElementById('copy-install');
+      if (!btn) return;
+      var installText = 'Install LobsterLink by following the instructions at https://github.com/davidguttman/lobsterlink/blob/master/AGENT-INSTALL.md';
+      var defaultLabel = btn.textContent;
+      var resetTimer = null;
+      btn.addEventListener('click', function () {
+        navigator.clipboard.writeText(installText).then(function () {
+          btn.textContent = 'Copied! Now paste into your agent.';
+          btn.classList.add('copied');
+          if (resetTimer) clearTimeout(resetTimer);
+          resetTimer = setTimeout(function () {
+            btn.textContent = defaultLabel;
+            btn.classList.remove('copied');
+          }, 2400);
+        }).catch(function () {
+          btn.textContent = 'Copy failed — select and copy manually';
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

@@ -65,7 +65,7 @@ if (!debugEnabled) {
 if (initialPeerId) {
   overlayInput.value = initialPeerId;
 } else {
-  window.location = '/about';
+  window.location = '/';
 }
 
 // --- Connection ---
