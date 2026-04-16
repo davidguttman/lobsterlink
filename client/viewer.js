@@ -1,4 +1,4 @@
-// LobsterLink Viewer — connects to host, renders video, captures and sends input
+// LobsterLink Viewer - connects to host, renders video, captures and sends input
 
 const video = document.getElementById('remote-video');
 const videoContainer = document.getElementById('video-container');
@@ -11,6 +11,8 @@ const statusEl = document.getElementById('connection-status');
 const urlBar = document.getElementById('url-bar');
 const tabSelect = document.getElementById('tab-select');
 const debugPanel = document.getElementById('debug-panel');
+const mobileKeyboardButton = document.getElementById('btn-mobile-keyboard');
+const mobileKeyboardInput = document.getElementById('mobile-keyboard-input');
 
 let peer = null;
 let dataConn = null;
@@ -18,6 +20,7 @@ let mediaCall = null;
 let remoteViewport = { width: 1920, height: 1080 };
 let currentTabId = null;
 let hostMetrics = null;
+let isMobileInputMode = false;
 
 // --- Reconnect state ---
 let connectedPeerId = null;
@@ -33,12 +36,18 @@ let lastMousemoveTime = 0;
 let pendingMousemove = null;
 let mousemoveRafId = null;
 
+// --- Touch state ---
+const TOUCH_TAP_MAX_DISTANCE = 12;
+const TOUCH_MOUSE_SUPPRESS_MS = 800;
+let activeTouchGesture = null;
+let suppressMouseUntil = 0;
+
 // Check URL params for peer ID and debug flag
 const params = new URLSearchParams(location.search);
 const initialPeerId = params.get('host');
 const debugEnabled = params.get('debug') === 'true';
 
-// Debug-gated logging — silences viewer console output unless ?debug=true
+// Debug-gated logging - silences viewer console output unless ?debug=true
 const log = debugEnabled ? console.log.bind(console) : () => {};
 const warn = debugEnabled ? console.warn.bind(console) : () => {};
 const error = debugEnabled ? console.error.bind(console) : () => {};
@@ -136,7 +145,7 @@ function connect(hostPeerId) {
   peer.on('error', (err) => {
     error('Peer error:', err);
     const msg = err.type === 'peer-unavailable'
-      ? 'Host not found — check the peer ID'
+      ? 'Host not found - check the peer ID'
       : (err.message || 'Connection failed');
     overlayError.textContent = msg;
 
@@ -168,7 +177,7 @@ function handleDisconnect(reason) {
     overlay.classList.remove('hidden');
     overlayMsg.textContent = '';
     if (reconnectAttempts >= RECONNECT_MAX_ATTEMPTS) {
-      overlayError.textContent = 'Gave up reconnecting — try manually';
+      overlayError.textContent = 'Gave up reconnecting - try manually';
     }
   }
 }
@@ -243,6 +252,7 @@ function cleanup() {
     mousemoveRafId = null;
   }
   pendingMousemove = null;
+  activeTouchGesture = null;
   updateDebugPanel();
 }
 
@@ -269,7 +279,7 @@ function handleHostMessage(msg) {
     case 'tabChanged':
       urlBar.value = msg.url || '';
       currentTabId = msg.tabId;
-      document.title = `LobsterLink — ${msg.title || 'Remote Tab'}`;
+      document.title = `LobsterLink - ${msg.title || 'Remote Tab'}`;
       // Highlight active tab in dropdown
       if (tabSelect.value !== String(msg.tabId)) {
         tabSelect.value = String(msg.tabId);
@@ -360,6 +370,31 @@ function sendInput(evt) {
   dataConn.send(JSON.stringify(evt));
 }
 
+function sendKeyTap(key, code, keyCode) {
+  const downEvent = {
+    type: 'key',
+    action: 'down',
+    key,
+    code,
+    keyCode,
+    modifiers: 0
+  };
+  if (key.length === 1) {
+    downEvent.text = key;
+    downEvent.unmodifiedText = key;
+  }
+
+  sendInput(downEvent);
+  sendInput({
+    type: 'key',
+    action: 'up',
+    key,
+    code,
+    keyCode,
+    modifiers: 0
+  });
+}
+
 async function writeClipboardText(text) {
   try {
     await navigator.clipboard.writeText(text);
@@ -374,6 +409,24 @@ async function writeClipboardText(text) {
     fallback.select();
     document.execCommand('copy');
     fallback.remove();
+  }
+}
+
+function focusVideoForInput() {
+  if (!isMobileInputMode) {
+    video.focus();
+  }
+}
+
+function focusMobileKeyboardInput() {
+  if (!mobileKeyboardInput) return;
+  isMobileInputMode = true;
+  mobileKeyboardInput.focus({ preventScroll: true });
+}
+
+function resetMobileKeyboardInput() {
+  if (mobileKeyboardInput) {
+    mobileKeyboardInput.value = '';
   }
 }
 
@@ -399,7 +452,7 @@ urlBar.addEventListener('keydown', (e) => {
       sendControl({ type: 'navigate', url });
     }
     // Return focus to video for input capture
-    video.focus();
+    focusVideoForInput();
   }
 });
 
@@ -425,6 +478,66 @@ document.getElementById('viewport-select').addEventListener('change', (e) => {
   // Reset to label
   e.target.value = '';
 });
+
+if (mobileKeyboardButton && mobileKeyboardInput) {
+  mobileKeyboardButton.addEventListener('click', (e) => {
+    e.preventDefault();
+    resetMobileKeyboardInput();
+    focusMobileKeyboardInput();
+  });
+
+  mobileKeyboardInput.addEventListener('focus', () => {
+    isMobileInputMode = true;
+  });
+
+  mobileKeyboardInput.addEventListener('blur', () => {
+    isMobileInputMode = false;
+    resetMobileKeyboardInput();
+  });
+
+  mobileKeyboardInput.addEventListener('beforeinput', (e) => {
+    let keyTap = null;
+
+    if (e.inputType === 'deleteContentBackward') {
+      keyTap = ['Backspace', 'Backspace', 8];
+    } else if (e.inputType === 'deleteContentForward') {
+      keyTap = ['Delete', 'Delete', 46];
+    } else if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
+      keyTap = ['Enter', 'Enter', 13];
+    }
+
+    if (!keyTap) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    sendKeyTap(...keyTap);
+    resetMobileKeyboardInput();
+    requestAnimationFrame(() => {
+      if (isMobileInputMode) {
+        focusMobileKeyboardInput();
+      }
+    });
+  });
+
+  mobileKeyboardInput.addEventListener('input', (e) => {
+    if (e.isComposing) return;
+    const text = mobileKeyboardInput.value;
+    if (!text) return;
+
+    sendInput({
+      type: 'clipboard',
+      action: 'pasteText',
+      text
+    });
+    resetMobileKeyboardInput();
+
+    requestAnimationFrame(() => {
+      if (isMobileInputMode) {
+        focusMobileKeyboardInput();
+      }
+    });
+  });
+}
 
 // --- Coordinate mapping ---
 
@@ -571,14 +684,14 @@ function getRenderedVideoRect() {
   };
 }
 
-function mapCoords(e) {
+function mapCoordsFromClientPoint(clientX, clientY) {
   const inputViewport = getInputViewportSize();
   const rect = getRenderedVideoRect();
   const safeWidth = rect.width || 1;
   const safeHeight = rect.height || 1;
 
-  const localX = clamp(e.clientX - rect.left, 0, safeWidth);
-  const localY = clamp(e.clientY - rect.top, 0, safeHeight);
+  const localX = clamp(clientX - rect.left, 0, safeWidth);
+  const localY = clamp(clientY - rect.top, 0, safeHeight);
 
   const x = clamp(Math.round((localX / safeWidth) * inputViewport.width), 0, Math.max(0, inputViewport.width - 1));
   const y = clamp(Math.round((localY / safeHeight) * inputViewport.height), 0, Math.max(0, inputViewport.height - 1));
@@ -593,11 +706,37 @@ function mapCoords(e) {
   return { x, y };
 }
 
+function mapCoords(source) {
+  return mapCoordsFromClientPoint(source.clientX, source.clientY);
+}
+
+function preventDefaultIfPossible(event) {
+  if (event.cancelable) {
+    event.preventDefault();
+  }
+}
+
+function shouldIgnoreMouseEvent() {
+  return performance.now() < suppressMouseUntil;
+}
+
+function findTouchById(touchList, identifier) {
+  if (!touchList) return null;
+  for (const touch of touchList) {
+    if (touch.identifier === identifier) {
+      return touch;
+    }
+  }
+  return null;
+}
+
 const BUTTON_MAP = ['left', 'middle', 'right'];
 
 // --- Mouse events (with throttled mousemove) ---
 
 video.addEventListener('mousemove', (e) => {
+  if (shouldIgnoreMouseEvent()) return;
+
   const now = performance.now();
   const { x, y } = mapCoords(e);
   const evt = { type: 'mouse', action: 'move', x, y, modifiers: getModifiers(e) };
@@ -623,9 +762,10 @@ video.addEventListener('mousemove', (e) => {
 });
 
 video.addEventListener('mousedown', (e) => {
-  e.preventDefault();
-  // preventDefault suppresses default focus, so we must focus explicitly
-  video.focus();
+  if (shouldIgnoreMouseEvent()) return;
+
+  preventDefaultIfPossible(e);
+  focusVideoForInput();
   const { x, y } = mapCoords(e);
   sendInput({
     type: 'mouse', action: 'down', x, y,
@@ -636,7 +776,9 @@ video.addEventListener('mousedown', (e) => {
 });
 
 video.addEventListener('mouseup', (e) => {
-  e.preventDefault();
+  if (shouldIgnoreMouseEvent()) return;
+
+  preventDefaultIfPossible(e);
   const { x, y } = mapCoords(e);
   sendInput({
     type: 'mouse', action: 'up', x, y,
@@ -646,17 +788,116 @@ video.addEventListener('mouseup', (e) => {
 });
 
 video.addEventListener('wheel', (e) => {
-  e.preventDefault();
+  preventDefaultIfPossible(e);
   const { x, y } = mapCoords(e);
   // CDP expects pixel deltas; convert line/page modes
-  let dx = e.deltaX, dy = e.deltaY;
-  if (e.deltaMode === 1) { dx *= 40; dy *= 40; }       // lines → pixels
-  else if (e.deltaMode === 2) { dx *= 800; dy *= 600; } // pages → pixels
+  let dx = e.deltaX;
+  let dy = e.deltaY;
+  if (e.deltaMode === 1) { dx *= 40; dy *= 40; }       // lines -> pixels
+  else if (e.deltaMode === 2) { dx *= 800; dy *= 600; } // pages -> pixels
   sendInput({
     type: 'mouse', action: 'wheel', x, y,
     deltaX: dx,
     deltaY: dy
   });
+}, { passive: false });
+
+video.addEventListener('touchstart', (e) => {
+  if (e.touches.length !== 1) {
+    activeTouchGesture = null;
+    return;
+  }
+
+  preventDefaultIfPossible(e);
+  const touch = e.touches[0];
+  suppressMouseUntil = performance.now() + TOUCH_MOUSE_SUPPRESS_MS;
+  activeTouchGesture = {
+    identifier: touch.identifier,
+    startClientX: touch.clientX,
+    startClientY: touch.clientY,
+    lastClientX: touch.clientX,
+    lastClientY: touch.clientY,
+    moved: false
+  };
+}, { passive: false });
+
+video.addEventListener('touchmove', (e) => {
+  if (!activeTouchGesture) return;
+
+  const touch = findTouchById(e.touches, activeTouchGesture.identifier) || e.touches[0];
+  if (!touch) return;
+
+  preventDefaultIfPossible(e);
+
+  const totalDx = touch.clientX - activeTouchGesture.startClientX;
+  const totalDy = touch.clientY - activeTouchGesture.startClientY;
+  if (!activeTouchGesture.moved && Math.hypot(totalDx, totalDy) >= TOUCH_TAP_MAX_DISTANCE) {
+    activeTouchGesture.moved = true;
+  }
+
+  const dx = touch.clientX - activeTouchGesture.lastClientX;
+  const dy = touch.clientY - activeTouchGesture.lastClientY;
+  activeTouchGesture.lastClientX = touch.clientX;
+  activeTouchGesture.lastClientY = touch.clientY;
+
+  if (!dx && !dy) return;
+
+  const { x, y } = mapCoords(touch);
+  sendInput({
+    type: 'mouse',
+    action: 'wheel',
+    x,
+    y,
+    deltaX: -dx,
+    deltaY: -dy
+  });
+}, { passive: false });
+
+video.addEventListener('touchend', (e) => {
+  if (!activeTouchGesture) return;
+
+  const touch = findTouchById(e.changedTouches, activeTouchGesture.identifier);
+  if (!touch) {
+    activeTouchGesture = null;
+    return;
+  }
+
+  preventDefaultIfPossible(e);
+  suppressMouseUntil = performance.now() + TOUCH_MOUSE_SUPPRESS_MS;
+
+  const totalDx = touch.clientX - activeTouchGesture.startClientX;
+  const totalDy = touch.clientY - activeTouchGesture.startClientY;
+  const isTap = !activeTouchGesture.moved && Math.hypot(totalDx, totalDy) < TOUCH_TAP_MAX_DISTANCE;
+
+  if (isTap) {
+    const { x, y } = mapCoords(touch);
+    sendInput({
+      type: 'mouse',
+      action: 'down',
+      x,
+      y,
+      button: 'left',
+      clickCount: 1,
+      modifiers: 0
+    });
+    sendInput({
+      type: 'mouse',
+      action: 'up',
+      x,
+      y,
+      button: 'left',
+      modifiers: 0
+    });
+  }
+
+  activeTouchGesture = null;
+}, { passive: false });
+
+video.addEventListener('touchcancel', (e) => {
+  if (!activeTouchGesture) return;
+  preventDefaultIfPossible(e);
+  activeTouchGesture = null;
+  suppressMouseUntil = performance.now() + TOUCH_MOUSE_SUPPRESS_MS;
 }, { passive: false });
 
 video.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -668,7 +909,7 @@ video.addEventListener('contextmenu', (e) => e.preventDefault());
 video.setAttribute('tabindex', '0');
 
 function isNavInput(el) {
-  return el && (el.id === 'url-bar' || el.id === 'overlay-peer-input' ||
+  return el && (el.id === 'url-bar' || el.id === 'overlay-peer-input' || el.id === 'mobile-keyboard-input' ||
     el.tagName === 'SELECT');
 }
 
@@ -682,7 +923,7 @@ document.addEventListener('keydown', (e) => {
   if (isNavInput(document.activeElement)) return;
   if (isClipboardShortcutKey(e)) return;
 
-  e.preventDefault();
+  preventDefaultIfPossible(e);
   e.stopPropagation();
 
   const evt = {
@@ -704,7 +945,7 @@ document.addEventListener('keyup', (e) => {
   if (isNavInput(document.activeElement)) return;
   if (isClipboardShortcutKey(e)) return;
 
-  e.preventDefault();
+  preventDefaultIfPossible(e);
   e.stopPropagation();
 
   sendInput({
@@ -720,7 +961,7 @@ document.addEventListener('paste', (e) => {
   if (!dataConn || !dataConn.open) return;
   if (isNavInput(document.activeElement)) return;
 
-  e.preventDefault();
+  preventDefaultIfPossible(e);
   e.stopPropagation();
   sendInput({
     type: 'clipboard',
@@ -733,7 +974,7 @@ document.addEventListener('copy', (e) => {
   if (!dataConn || !dataConn.open) return;
   if (isNavInput(document.activeElement)) return;
 
-  e.preventDefault();
+  preventDefaultIfPossible(e);
   e.stopPropagation();
   sendInput({
     type: 'clipboard',
@@ -745,7 +986,7 @@ document.addEventListener('cut', (e) => {
   if (!dataConn || !dataConn.open) return;
   if (isNavInput(document.activeElement)) return;
 
-  e.preventDefault();
+  preventDefaultIfPossible(e);
   e.stopPropagation();
   sendInput({
     type: 'clipboard',
@@ -753,18 +994,21 @@ document.addEventListener('cut', (e) => {
   });
 }, true);
 
-video.addEventListener('click', () => video.focus());
+video.addEventListener('click', () => {
+  if (shouldIgnoreMouseEvent()) return;
+  focusVideoForInput();
+});
 video.addEventListener('loadedmetadata', () => {
   layoutVideo();
-  log('[LOBSTERLINK:viewer] Video metadata — intrinsic:',
+  log('[LOBSTERLINK:viewer] Video metadata - intrinsic:',
     video.videoWidth, 'x', video.videoHeight,
     '| remote viewport:', remoteViewport.width, 'x', remoteViewport.height);
   updateDebugPanel();
 });
 video.addEventListener('playing', () => {
   layoutVideo();
-  video.focus();
-  log('[LOBSTERLINK:viewer] Video playing — intrinsic:',
+  focusVideoForInput();
+  log('[LOBSTERLINK:viewer] Video playing - intrinsic:',
     video.videoWidth, 'x', video.videoHeight,
     '| remote viewport:', remoteViewport.width, 'x', remoteViewport.height);
   updateDebugPanel();
@@ -799,7 +1043,7 @@ async function checkSameWindow() {
     if (allTabs.length > 1) {
       const warn = document.createElement('div');
       warn.style.cssText = 'position:fixed;top:44px;left:0;right:0;z-index:20;padding:6px 12px;background:#4a3a1a;color:#f0c055;font-size:12px;text-align:center;font-family:system-ui,sans-serif;';
-      warn.textContent = 'Tip: Move this viewer tab to a separate window for best results (right-click tab \u2192 Move to new window). Same-window hosting may freeze the video.';
+      warn.textContent = 'Tip: Move this viewer tab to a separate window for best results (right-click tab -> Move to new window). Same-window hosting may freeze the video.';
       document.body.appendChild(warn);
       // Auto-dismiss after 10 seconds
       setTimeout(() => warn.remove(), 10000);

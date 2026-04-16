@@ -35,6 +35,7 @@
     }
     .nav-btn:hover { background: #1a1a4e; border-color: #5568f0; }
     .nav-btn.danger:hover { border-color: #f05555; }
+    .mobile-only { display: none; }
 
     #url-bar {
       flex: 1; min-width: 0;
@@ -64,6 +65,8 @@
       background: #000;
       position: relative;
       overflow: hidden;
+      touch-action: none;
+      overscroll-behavior: contain;
     }
     #remote-video {
       display: block;
@@ -74,6 +77,33 @@
       height: auto;
       max-width: none;
       max-height: none;
+      touch-action: none;
+      overscroll-behavior: contain;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    .mobile-keyboard-input {
+      position: fixed;
+      left: 0;
+      bottom: 0;
+      width: 1px;
+      height: 1px;
+      opacity: 0.01;
+      border: 0;
+      outline: none;
+      padding: 0;
+      margin: 0;
+      resize: none;
+      pointer-events: none;
+      background: transparent;
+      color: transparent;
+      caret-color: transparent;
+      z-index: -1;
+    }
+
+    @media (pointer: coarse), (hover: none) {
+      .mobile-only { display: flex; }
     }
 
     #connect-overlay {
@@ -133,11 +163,13 @@
       <option value="1280x720">1280x720</option>
       <option value="1024x768">1024x768</option>
     </select>
+    <button class="nav-btn mobile-only" id="btn-mobile-keyboard" title="Mobile keyboard">⌨</button>
     <span id="connection-status">Disconnected</span>
   </div>
 
   <div id="video-container">
     <video id="remote-video" autoplay playsinline muted></video>
+    <textarea id="mobile-keyboard-input" class="mobile-keyboard-input" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
     <pre id="debug-panel"></pre>
 
     <div id="connect-overlay">

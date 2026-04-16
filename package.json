@@ -1,0 +1,11 @@
+{
+  "name": "lobsterlink",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev:client",
+    "dev:client": "serve client --listen ${PORT:-4173}"
+  },
+  "devDependencies": {
+    "serve": "^14.2.3"
+  }
+}
