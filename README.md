@@ -4,22 +4,53 @@ Let a human complete blocked steps inside an agent's browser, without sharing cr
 
 ---
 
-An agent opens LinkedIn, hits a login wall, and needs a human for one step. LobsterLink hosts that tab over WebRTC and gives the human a link:
+Your agent opens LinkedIn, hits a login wall, and stops. Or Twitter wants 2FA. Or Reddit throws a CAPTCHA. Or a bank site needs an identity check. Every agent workflow eventually hits a step that requires a real human — and the usual options are bad: hand over your password, stuff a cookie file, or babysit the agent.
+
+LobsterLink does something smaller. The agent hosts its tab over WebRTC and hands you a link:
 
 ```text
 https://lobsterl.ink/?peerId=abc123-long-uuid
 ```
 
-The human opens it, sees the agent's tab, does the required step, and leaves. The agent keeps the authenticated session.
+You open it. You see the agent's tab, live, in any browser. You do the step. You close the tab. The agent keeps the authenticated session and goes back to work.
 
-## How it works
+No credentials shared. No extension installed on your machine. No remote desktop. Just one tab, just the blocked step, then you're out.
 
-LobsterLink is an agent-oriented Chrome extension plus a public viewer.
+## Is this for you
 
-**Host** , the agent's browser tab.  
-**Viewer** , the human opening `lobsterl.ink`.
+**Yes, if:**
+- You run agents that need to browse authenticated sites you control.
+- You've hit the "OK but how does it log in" wall and don't love the answers.
+- You use OpenClaw, or any agent runtime that can load a Chrome extension.
 
-The host runs through CDP screencast. The viewer renders the stream and sends input back over WebRTC.
+**Not yet, if:**
+- Your agent doesn't control its own browser. LobsterLink installs on the agent side, not yours.
+
+## Getting started
+
+LobsterLink installs into the agent's browser, not yours. You don't install anything locally.
+
+Tell your agent:
+
+> Install LobsterLink by following the instructions at `https://github.com/davidguttman/lobsterlink/blob/master/AGENT-INSTALL.md`.
+
+That's the whole install step. The agent fetches the file, follows it, and reports back with an extension ID and proof of install. Works with OpenClaw out of the box; covers other runtimes too.
+
+Once installed, ask your agent things like "share the LinkedIn tab" or "give me the viewer link." If you're on OpenClaw, the bundled `lobsterlink-tab-share` skill handles the rest. On other runtimes, the agent drives the bridge page directly — see [For agents](#for-agents) below.
+
+## What you see when you click a link
+
+You open `lobsterl.ink/?peerId=...` in a desktop browser — any browser, any OS. You see the agent's tab rendering live, and your mouse and keyboard drive it. You're not sharing your screen. The agent can't see your other tabs, your desktop, or anything else on your machine. When you close the tab, you're out.
+
+Mobile and tablet work for viewing, but keyboard handling is rough right now — the on-screen keyboard doesn't reliably pop up when you'd expect. Use a laptop or desktop for anything involving typing.
+
+---
+
+## For agents
+
+LobsterLink is a Chrome extension that hosts a browser tab over WebRTC and exposes a bridge page for programmatic control. The human-facing viewer lives at `lobsterl.ink`.
+
+### Architecture
 
 ```text
 Agent browser (Host)                   Human (Viewer)
@@ -31,156 +62,27 @@ Agent browser (Host)                   Human (Viewer)
 └──────────────────────────┘          └──────────────────────────┘
 ```
 
-## Built for agents
+### Usage
 
-LobsterLink includes a bridge page that runs in extension context:
+Open the bridge page: `chrome-extension://<extension-id>/bridge.html`.
 
-```text
-chrome-extension://<extension-id>/bridge.html
-```
+The bridge is a regular HTML page running in extension context. It has a numbered step list written for agents, with live status indicators next to each step — pick the target tab, start hosting, read the peer ID, focus the hosted tab if needed. Follow the instructions on the page. Send the human `https://lobsterl.ink/?peerId=<id>` once the peer ID is visible.
 
-The bridge is the control surface for agents: start and stop hosting, switch the hosted tab, read the peer ID, open the public viewer, and resize the viewport.
+If your automation tooling blocks `chrome-extension://` navigation, open the bridge via CDP target creation instead.
 
-For programmatic control:
+### Installing
 
-```js
-chrome.runtime.sendMessage({ action: 'startHostingCDP', tabId: 123 });
-```
+Full install instructions for agents: [`AGENT-INSTALL.md`](./AGENT-INSTALL.md). Covers OpenClaw and other runtimes.
 
-That starts hosting in CDP screencast mode, returns a peer ID, and lets the agent construct the viewer URL:
+### OpenClaw skill
 
-```text
-https://lobsterl.ink/?peerId=<id>
-```
+This repo ships with a skill at `openclaw/lobsterlink-tab-share/SKILL.md`. It opens the bridge, starts hosting through the bridge controls, verifies state, returns the peer ID and public viewer link, and re-focuses the hosted tab. Use it for workflows like "share the LinkedIn tab," "give me the viewer link," "use my logged-in tab," "stop sharing."
 
-## OpenClaw integration
+### Gotchas
 
-This repo ships with an OpenClaw skill:
+- **CDP screencast stalls on static pages.** LobsterLink auto-restarts screencast on viewer connect and uses frame ticking to keep output alive, but if you're seeing a frozen viewer, nudge the page.
+- **`chrome-extension://` navigation blocked.** Open the bridge through CDP target creation, not `chrome.tabs.update`.
 
-- `openclaw/lobsterlink-tab-share/SKILL.md`
+### Public web viewer
 
-### Copy-paste install prompt for OpenClaw
-
-Use this when OpenClaw does not already have LobsterLink locally.
-
-```text
-Install and configure the unpacked LobsterLink Chrome extension for the isolated `openclaw` browser profile, then verify that it is really loaded.
-
-Source repo:
-- Public GitHub repo: `davidguttman/lobsterlink`
-
-Assume LobsterLink is not present locally yet.
-Do not git clone it.
-Download the repo archive, unzip it locally, and use the extracted directory as the extension source path.
-
-Fetch path:
-1. Download the ZIP archive for `davidguttman/lobsterlink`.
-2. Unzip it into a local working directory.
-3. Find the extracted top-level LobsterLink directory and use its absolute path as the extension source path.
-
-Goal:
-Load this unpacked extension into the isolated `openclaw` browser via config so it survives browser restarts and can be used later by the agent.
-
-Requirements:
-- Use the isolated `openclaw` profile.
-- Configure extension loading through OpenClaw browser config, not manual one-off clicks.
-- Preserve unrelated browser settings.
-- Verify with evidence, do not assume.
-
-What to inspect first:
-1. Browser config schema for:
-   - `browser`
-   - `browser.extraArgs`
-2. Current browser config.
-3. Current browser plugin availability.
-
-Config goals:
-- `browser.defaultProfile = "openclaw"`
-- `browser.extraArgs` must include:
-  - `--load-extension=<ABSOLUTE_PATH_TO_EXTRACTED_LOBSTERLINK_DIRECTORY>`
-
-Example patch target:
-{
-  "browser": {
-    "defaultProfile": "openclaw",
-    "extraArgs": [
-      "--load-extension=<ABSOLUTE_PATH_TO_EXTRACTED_LOBSTERLINK_DIRECTORY>"
-    ]
-  }
-}
-
-Execution steps:
-1. Download and unzip LobsterLink locally.
-2. Inspect the current config schema and current config.
-3. Patch config safely.
-4. Restart OpenClaw if needed so browser launch args refresh.
-5. After any restart, continue the work in the same run until verification is complete.
-6. Start the isolated browser profile.
-7. Verify the live Chromium process includes:
-   - `--user-data-dir=...openclaw...`
-   - `--remote-debugging-port=...`
-   - `--load-extension=<ABSOLUTE_PATH_TO_EXTRACTED_LOBSTERLINK_DIRECTORY>`
-8. Verify the extension is actually loaded by checking at least one of:
-   - isolated profile Preferences or extension settings
-   - CDP `/json/list` extension service worker or page targets
-9. Discover and report the extension ID.
-10. Report the exact config fields changed.
-
-Final answer must include:
-- a clear statement that setup is complete only after the post-restart verification passes
-- extension source path
-- whether config was updated
-- whether OpenClaw/browser was restarted
-- extension ID
-- proof that Chromium was launched with the extension flags
-- proof that the extension is loaded in the isolated profile
-
-Do the work, do not just describe it.
-```
-
-After that, use the `lobsterlink-tab-share` skill for workflows like:
-
-- share the LinkedIn tab
-- give me the viewer link
-- use my logged-in tab
-- stop sharing
-
-The skill uses the reliable path: open the bridge, start hosting via CDP, verify state, return the peer ID and public viewer link, then re-focus the hosted tab.
-
-## Setup
-
-1. Download or clone the repo locally.
-2. Open `chrome://extensions`, enable Developer mode, click **Load unpacked**, select this directory.
-3. Open the bridge page at `chrome-extension://<extension-id>/bridge.html`, or create that target through CDP.
-
-## Usage
-
-1. Agent opens the target tab.
-2. Agent opens `bridge.html`.
-3. Agent starts hosting with `startHostingCDP` or the bridge controls.
-4. Agent gets the peer ID and sends `https://lobsterl.ink/?peerId=<id>` to the human.
-5. Human opens the link, completes the blocked step, and leaves.
-6. Agent keeps the authenticated tab session.
-
-## Public web viewer
-
-The `client/` directory is the standalone static viewer that powers `lobsterl.ink`. See `client/README.md` for details.
-
-## Requirements
-
-- Chrome or Chromium on the agent's machine
-- Internet for PeerJS signaling and WebRTC connectivity
-
-## Troubleshooting
-
-**`chrome-extension://` navigation blocked by automation tooling** , open the bridge via CDP target creation instead of normal navigation.
-
-**No frames in screencast mode** , CDP screencast can stall on visually static pages. LobsterLink auto-restarts screencast on viewer connect and uses frame ticking to keep output alive.
-
-**Connection fails** , both sides need to reach PeerJS signaling and successfully establish a WebRTC path.
-
-## Permissions
-
-- `tabs` , inspect and manage tabs
-- `debugger` , inject input and run screencast via CDP
-- `offscreen` , handle media and rendering work offscreen
+The `client/` directory is the standalone static viewer that powers `lobsterl.ink`. See `client/README.md` for the file layout.

@@ -7,12 +7,12 @@ description: Use when a human wants to share a logged-in tab from the isolated O
 
 Use this when LobsterLink is already loaded in the isolated `openclaw` browser profile and the human wants the agent to use or share an authenticated tab through LobsterLink.
 
-If LobsterLink is not installed yet, use the install prompt in this repo's `README.md` first.
+If LobsterLink is not installed yet, follow the install instructions in this repo's `AGENT-INSTALL.md` first.
 
 ## Hard Rules
 
 - Use the isolated `openclaw` browser profile, not the human `user` profile, unless explicitly asked otherwise.
-- Prefer the bridge/runtime path, not the popup click path.
+- Prefer the bridge path, not the popup click path.
 - Do not rely on popup `tabCapture` for agent automation. Chrome user gesture rules make that unreliable.
 - Verify bridge state before claiming success.
 - After hosting starts, switch back to the hosted target tab.
@@ -23,7 +23,7 @@ If LobsterLink is not installed yet, use the install prompt in this repo's `READ
 2. Find the requested target tab.
 3. Open `chrome-extension://<EXTENSION_ID>/bridge.html`.
 4. Stop any old host.
-5. Start hosting the requested tab through `startHostingCDP` or the bridge controls.
+5. Start hosting the requested tab through the bridge controls.
 6. Verify:
    - bridge says `Hosting`
    - peer ID is populated
@@ -32,7 +32,7 @@ If LobsterLink is not installed yet, use the install prompt in this repo's `READ
 7. Re-focus the hosted tab.
 8. Return the peer ID and the public viewer link: `https://lobsterl.ink/?peerId=<PEER_ID>`
 
-To stop sharing, call `stopHosting` and verify hosting is false.
+To stop sharing, click **Stop Host** on the bridge and verify hosting is false.
 
 ## Verification
 
