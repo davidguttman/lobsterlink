@@ -42,6 +42,12 @@ const TOUCH_MOUSE_SUPPRESS_MS = 800;
 let activeTouchGesture = null;
 let suppressMouseUntil = 0;
 
+// --- Viewport follow state ---
+const VIEWPORT_FOLLOW_DEBOUNCE_MS = 250;
+const VIEWPORT_FOLLOW_PENDING_MS = 1500;
+let lastRequestedViewport = null;
+let viewportFollowTimer = null;
+
 // Check URL params for peer ID and debug flag
 const params = new URLSearchParams(location.search);
 const initialPeerId = params.get('host');
@@ -107,6 +113,7 @@ function connect(hostPeerId) {
 
       // Request tab list on connect
       sendControl({ type: 'listTabs' });
+      scheduleAutoViewport({ immediate: true });
     });
 
     dataConn.on('data', (data) => {
@@ -251,8 +258,14 @@ function cleanup() {
     cancelAnimationFrame(mousemoveRafId);
     mousemoveRafId = null;
   }
+  if (viewportFollowTimer) {
+    clearTimeout(viewportFollowTimer);
+    viewportFollowTimer = null;
+  }
   pendingMousemove = null;
   activeTouchGesture = null;
+  hostMetrics = null;
+  lastRequestedViewport = null;
   updateDebugPanel();
 }
 
@@ -301,6 +314,7 @@ function handleHostMessage(msg) {
       hostMetrics = { ...(hostMetrics || {}), captureMode: msg.mode };
       layoutVideo();
       updateDebugPanel();
+      scheduleAutoViewport({ immediate: true });
       break;
 
     case 'hostMetrics':
@@ -358,6 +372,76 @@ function sendControl(evt) {
   }
   log('[LOBSTERLINK:viewer] Sending control:', evt.type);
   dataConn.send(JSON.stringify(evt));
+}
+
+function sameViewportSize(a, b) {
+  return !!a && !!b && a.width === b.width && a.height === b.height;
+}
+
+function getDesiredHostViewport() {
+  const width = Math.round(videoContainer.clientWidth || 0);
+  const height = Math.round(videoContainer.clientHeight || 0);
+
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return { width, height };
+}
+
+function getCurrentHostViewport() {
+  const width = Math.round(hostMetrics?.viewportWidth || 0);
+  const height = Math.round(hostMetrics?.viewportHeight || 0);
+
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return { width, height };
+}
+
+function shouldAutoFollowViewport() {
+  return hostMetrics?.captureMode === 'screencast';
+}
+
+function requestAutoViewport() {
+  viewportFollowTimer = null;
+
+  if (!dataConn || !dataConn.open) return;
+  if (!shouldAutoFollowViewport()) return;
+
+  const desiredViewport = getDesiredHostViewport();
+  if (!desiredViewport) return;
+
+  const currentViewport = getCurrentHostViewport();
+  if (sameViewportSize(currentViewport, desiredViewport)) {
+    lastRequestedViewport = { ...desiredViewport, at: Date.now() };
+    return;
+  }
+
+  if (sameViewportSize(lastRequestedViewport, desiredViewport) &&
+      (Date.now() - (lastRequestedViewport?.at || 0)) < VIEWPORT_FOLLOW_PENDING_MS) {
+    return;
+  }
+
+  sendControl({ type: 'setViewport', width: desiredViewport.width, height: desiredViewport.height });
+  lastRequestedViewport = { ...desiredViewport, at: Date.now() };
+}
+
+function scheduleAutoViewport({ immediate = false } = {}) {
+  if (viewportFollowTimer) {
+    clearTimeout(viewportFollowTimer);
+    viewportFollowTimer = null;
+  }
+
+  if (immediate) {
+    requestAutoViewport();
+    return;
+  }
+
+  viewportFollowTimer = setTimeout(() => {
+    requestAutoViewport();
+  }, VIEWPORT_FOLLOW_DEBOUNCE_MS);
 }
 
 function sendInput(evt) {
@@ -1016,6 +1100,7 @@ video.addEventListener('playing', () => {
 window.addEventListener('resize', () => {
   layoutVideo();
   updateDebugPanel();
+  scheduleAutoViewport();
 });
 setInterval(updateDebugPanel, 500);
 
