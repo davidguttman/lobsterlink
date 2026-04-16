@@ -1,7 +1,9 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>LobsterLink Viewer</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LobsterLink</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body {
@@ -114,6 +116,190 @@
       white-space: pre-wrap;
       pointer-events: none;
     }
+
+    /* --- Landing (shown when there's no ?host= param) --- */
+
+    #landing { display: none; }
+
+    body.landing {
+      height: auto;
+      min-height: 100%;
+      overflow: auto;
+      background:
+        radial-gradient(circle at top left, rgba(95, 140, 255, 0.14), transparent 34%),
+        radial-gradient(circle at top right, rgba(47, 199, 161, 0.10), transparent 30%),
+        linear-gradient(180deg, #0b1020 0%, #0d1326 100%);
+      color: #e8eefc;
+      padding: 56px 24px 72px;
+    }
+
+    body.landing #nav-bar,
+    body.landing #video-container { display: none; }
+
+    body.landing #landing { display: block; }
+
+    .landing-inner {
+      max-width: 720px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 56px;
+    }
+
+    .landing-inner .eyebrow {
+      margin: 0 0 14px;
+      color: #2fc7a1;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .landing-inner h1 {
+      margin: 0;
+      font-size: 36px;
+      line-height: 1.15;
+      font-weight: 700;
+      color: #fff;
+      max-width: 640px;
+    }
+
+    .steps {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .steps li {
+      display: flex;
+      align-items: flex-start;
+      gap: 18px;
+    }
+
+    .step-num {
+      flex: 0 0 auto;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(180deg, #6994ff, #4b71dc);
+      color: #fff;
+      font-weight: 700;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .step-text {
+      font-size: 17px;
+      line-height: 1.45;
+      color: #e8eefc;
+      padding-top: 6px;
+    }
+
+    .step-text code {
+      background: rgba(95, 140, 255, 0.14);
+      color: #b8ccff;
+      padding: 2px 6px;
+      border-radius: 6px;
+      font: 0.92em/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .cta-block {
+      background: linear-gradient(180deg, rgba(36, 58, 112, 0.78), rgba(21, 33, 64, 0.9));
+      border: 1px solid rgba(95, 140, 255, 0.35);
+      border-radius: 18px;
+      padding: 28px 24px;
+      text-align: center;
+    }
+
+    .cta-lead {
+      margin: 0 0 18px;
+      color: #c8d6ff;
+      font-size: 14px;
+    }
+
+    .cta-btn {
+      border: none;
+      padding: 14px 24px;
+      border-radius: 12px;
+      background: linear-gradient(180deg, #6994ff, #4b71dc);
+      color: #fff;
+      font: 600 15px/1 system-ui, sans-serif;
+      cursor: pointer;
+      transition: filter 0.12s ease, background 0.2s ease;
+    }
+
+    .cta-btn:hover { filter: brightness(1.08); }
+    .cta-btn.copied {
+      background: linear-gradient(180deg, #3fd6a9, #25a583);
+    }
+
+    .faq {
+      display: flex;
+      flex-direction: column;
+      gap: 26px;
+    }
+
+    .faq h2 {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 700;
+      color: #8d9cc4;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .qa {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .qa h3 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 600;
+      color: #e8eefc;
+    }
+
+    .qa p {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.55;
+      color: #b0bcd8;
+    }
+
+    .landing-footer {
+      padding-top: 24px;
+      border-top: 1px solid rgba(55, 74, 126, 0.5);
+      font-size: 14px;
+      color: #8d9cc4;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .landing-footer a {
+      color: #b8ccff;
+      text-decoration: none;
+    }
+
+    .landing-footer a:hover {
+      color: #e8eefc;
+      text-decoration: underline;
+    }
+
+    @media (max-width: 680px) {
+      body.landing { padding: 36px 20px 56px; }
+      .landing-inner { gap: 44px; }
+      .landing-inner h1 { font-size: 26px; }
+      .step-text { font-size: 16px; }
+    }
   </style>
 </head>
 <body>
@@ -146,6 +332,64 @@
       <div class="error" id="overlay-error"></div>
     </div>
   </div>
+  <section id="landing">
+    <div class="landing-inner">
+      <header>
+        <p class="eyebrow">LobsterLink</p>
+        <h1>Let a human complete blocked steps in an agent's browser, without sharing credentials.</h1>
+      </header>
+
+      <ol class="steps">
+        <li>
+          <span class="step-num">1</span>
+          <span class="step-text">Your agent hits a login, 2FA, or CAPTCHA wall.</span>
+        </li>
+        <li>
+          <span class="step-num">2</span>
+          <span class="step-text">It sends you a <code>lobsterl.ink/?host=…</code> link.</span>
+        </li>
+        <li>
+          <span class="step-num">3</span>
+          <span class="step-text">You open it, finish the step, close the tab. The agent keeps going.</span>
+        </li>
+      </ol>
+
+      <div class="cta-block">
+        <p class="cta-lead">Don't have LobsterLink yet? Tell your agent to install it.</p>
+        <button id="copy-install" class="cta-btn">Copy install instructions for my agent</button>
+      </div>
+
+      <section class="faq">
+        <h2>Questions</h2>
+
+        <div class="qa">
+          <h3>How does this actually work?</h3>
+          <p>LobsterLink is a Chrome extension that lives in your agent's browser. When the agent gets blocked, it opens a WebRTC tunnel so you can see and control one tab — not the rest of the agent's machine, and nothing on yours.</p>
+        </div>
+
+        <div class="qa">
+          <h3>Is this secure?</h3>
+          <p>The link only exposes a single browser tab. The agent can't see your desktop, your tabs, or your files. You can't see its other tabs either. No credentials change hands, and WebRTC is encrypted end-to-end.</p>
+        </div>
+
+        <div class="qa">
+          <h3>What happens when my agent installs this?</h3>
+          <p>Your agent downloads an unpacked Chrome extension and loads it into the browser it controls. It takes about a minute, and it's all on the agent's side — you don't install anything.</p>
+        </div>
+
+        <div class="qa">
+          <h3>Is this magic?</h3>
+          <p>No. It's Chrome's remote-debugging protocol streamed over WebRTC. The trick is letting a human drop into a single tab of an otherwise-autonomous browser session, finish the blocked step, and leave.</p>
+        </div>
+      </section>
+
+      <footer class="landing-footer">
+        <span>LobsterLink</span>
+        <a href="https://github.com/davidguttman/lobsterlink">GitHub →</a>
+      </footer>
+    </div>
+  </section>
+
   <script src="lib/peerjs.min.js"></script>
   <script src="viewer.js"></script>
 </body>

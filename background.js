@@ -163,7 +163,7 @@ function logDiagnostic(event, details = {}) {
 
 function getViewerUrl(peerId) {
   if (!peerId) return null;
-  return `https://lobsterl.ink/?peerId=${encodeURIComponent(peerId)}`;
+  return `https://lobsterl.ink/?host=${encodeURIComponent(peerId)}`;
 }
 
 function getStatusPayload() {

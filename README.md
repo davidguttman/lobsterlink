@@ -9,7 +9,7 @@ Your agent opens LinkedIn, hits a login wall, and stops. Or Twitter wants 2FA. O
 LobsterLink does something smaller. The agent hosts its tab over WebRTC and hands you a link:
 
 ```text
-https://lobsterl.ink/?peerId=abc123-long-uuid
+https://lobsterl.ink/?host=abc123-long-uuid
 ```
 
 You open it. You see the agent's tab, live, in any browser. You do the step. You close the tab. The agent keeps the authenticated session and goes back to work.
@@ -40,7 +40,7 @@ Once installed, ask your agent things like "share the LinkedIn tab" or "give me 
 
 ## What you see when you click a link
 
-You open `lobsterl.ink/?peerId=...` in a desktop browser — any browser, any OS. You see the agent's tab rendering live, and your mouse and keyboard drive it. You're not sharing your screen. The agent can't see your other tabs, your desktop, or anything else on your machine. When you close the tab, you're out.
+You open `lobsterl.ink/?host=...` in a desktop browser — any browser, any OS. You see the agent's tab rendering live, and your mouse and keyboard drive it. You're not sharing your screen. The agent can't see your other tabs, your desktop, or anything else on your machine. When you close the tab, you're out.
 
 Mobile and tablet work for viewing, but keyboard handling is rough right now — the on-screen keyboard doesn't reliably pop up when you'd expect. Use a laptop or desktop for anything involving typing.
 
@@ -66,7 +66,7 @@ Agent browser (Host)                   Human (Viewer)
 
 Open the bridge page: `chrome-extension://<extension-id>/bridge.html`.
 
-The bridge is a regular HTML page running in extension context. It has a numbered step list written for agents, with live status indicators next to each step — pick the target tab, start hosting, read the peer ID, focus the hosted tab if needed. Follow the instructions on the page. Send the human `https://lobsterl.ink/?peerId=<id>` once the peer ID is visible.
+The bridge is a regular HTML page running in extension context. It has a numbered step list written for agents, with live status indicators next to each step — pick the target tab, start hosting, read the peer ID, focus the hosted tab if needed. Follow the instructions on the page. Send the human `https://lobsterl.ink/?host=<id>` once the peer ID is visible.
 
 If your automation tooling blocks `chrome-extension://` navigation, open the bridge via CDP target creation instead.
 

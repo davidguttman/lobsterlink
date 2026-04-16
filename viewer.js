@@ -35,7 +35,7 @@ let mousemoveRafId = null;
 
 // Check URL params for peer ID and debug flag
 const params = new URLSearchParams(location.search);
-const initialPeerId = params.get('peerId');
+const initialPeerId = params.get('host');
 const debugEnabled = params.get('debug') === 'true';
 
 // Debug-gated logging — silences viewer console output unless ?debug=true

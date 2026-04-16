@@ -29,7 +29,7 @@ python3 -m http.server --directory client 8000
 Open the deployed URL and paste a host peer ID, or pass it in the query string:
 
 ```
-https://lobsterl.ink/?peerId=<host-peer-id>
+https://lobsterl.ink/?host=<host-peer-id>
 ```
 
 The page connects to the LobsterLink host over WebRTC via PeerJS and renders the shared

@@ -30,7 +30,7 @@ If LobsterLink is not installed yet, follow the install instructions in this rep
    - captured tab matches the request
    - capture mode is present
 7. Re-focus the hosted tab.
-8. Return the peer ID and the public viewer link: `https://lobsterl.ink/?peerId=<PEER_ID>`
+8. Return the peer ID and the public viewer link: `https://lobsterl.ink/?host=<PEER_ID>`
 
 To stop sharing, click **Stop Host** on the bridge and verify hosting is false.
 

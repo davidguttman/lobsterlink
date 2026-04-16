@@ -35,7 +35,7 @@ let mousemoveRafId = null;
 
 // Check URL params for peer ID and debug flag
 const params = new URLSearchParams(location.search);
-const initialPeerId = params.get('peerId');
+const initialPeerId = params.get('host');
 const debugEnabled = params.get('debug') === 'true';
 
 // Debug-gated logging — silences viewer console output unless ?debug=true
@@ -49,6 +49,31 @@ if (!debugEnabled) {
 
 if (initialPeerId) {
   overlayInput.value = initialPeerId;
+} else {
+  document.body.classList.add('landing');
+  initLandingPage();
+}
+
+function initLandingPage() {
+  const copyBtn = document.getElementById('copy-install');
+  if (!copyBtn) return;
+  const installText = 'Install LobsterLink by following the instructions at https://github.com/davidguttman/lobsterlink/blob/master/AGENT-INSTALL.md';
+  const defaultLabel = copyBtn.textContent;
+  let resetTimer = null;
+  copyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(installText);
+      copyBtn.textContent = 'Copied! Now paste into your agent.';
+      copyBtn.classList.add('copied');
+      if (resetTimer) clearTimeout(resetTimer);
+      resetTimer = setTimeout(() => {
+        copyBtn.textContent = defaultLabel;
+        copyBtn.classList.remove('copied');
+      }, 2400);
+    } catch (err) {
+      copyBtn.textContent = 'Copy failed — select and copy manually';
+    }
+  });
 }
 
 // --- Connection ---
