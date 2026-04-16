@@ -68,7 +68,7 @@ Agent browser (Host)                   Human (Viewer)
 
 Open the bridge page: `chrome-extension://<extension-id>/bridge.html`.
 
-The bridge is a regular HTML page running in extension context. It has a numbered step list written for agents, with live status indicators next to each step — pick the target tab, start hosting, read the peer ID, focus the hosted tab if needed. Follow the instructions on the page. Send the human `https://lobsterl.ink/?host=<id>` once the peer ID is visible.
+The bridge is a regular HTML page running in extension context. It has a numbered step list written for agents, with live status indicators next to each step — pick the target tab, start hosting, read the peer ID, then refocus the hosted tab and keep it active. The focus step is required, not optional: CDP screencast stalls when the hosted tab is backgrounded, so the focus indicator reports `Active` vs `Needs Focus` and must be `Active` for the duration of the session. Return `https://lobsterl.ink/?host=<id>` once the peer ID is visible and the hosted tab is active.
 
 If your automation tooling blocks `chrome-extension://` navigation, open the bridge via CDP target creation instead.
 
@@ -82,7 +82,7 @@ This repo ships with a skill at `openclaw/lobsterlink-tab-share/SKILL.md`. It op
 
 ### Gotchas
 
-- **CDP screencast stalls on static pages.** LobsterLink auto-restarts screencast on viewer connect and uses frame ticking to keep output alive, but if you're seeing a frozen viewer, nudge the page.
+- **Black viewer → hosted tab is not active.** CDP screencast only produces frames while the hosted tab is the active tab in its window. If the viewer shows a black frame, the first and only check is whether the hosted tab is frontmost — click **Show Hosted Tab** on the bridge (or use the `focusTab` control event) and keep it active. The bridge focus indicator reports `Active` vs `Needs Focus`; treat anything other than `Active` as a broken session.
 - **`chrome-extension://` navigation blocked.** Open the bridge through CDP target creation, not `chrome.tabs.update`.
 
 ### Public web viewer

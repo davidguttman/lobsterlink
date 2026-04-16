@@ -230,7 +230,6 @@ function renderAgentSteps() {
   const status = state.status || {};
   const selectedTabId = getSelectedTabId();
   const hasSelectedTab = Number.isFinite(selectedTabId);
-  const selectedMatchesCaptured = hasSelectedTab && selectedTabId === status.capturedTabId;
 
   setStep(statusEls.stepSelect, hasSelectedTab ? `Selected #${selectedTabId}` : 'Waiting', hasSelectedTab ? 'ok' : '');
   setStep(statusEls.stepHost, status.hosting ? 'Hosting' : 'Waiting', status.hosting ? 'ok' : '');
@@ -238,10 +237,14 @@ function renderAgentSteps() {
 
   if (!status.hosting || !status.capturedTabId) {
     setStep(statusEls.stepFocus, 'Waiting', '');
-  } else if (selectedMatchesCaptured) {
-    setStep(statusEls.stepFocus, `Ready For #${status.capturedTabId}`, 'warn');
+    return;
+  }
+
+  const capturedTab = getTabById(status.capturedTabId);
+  if (capturedTab && capturedTab.active) {
+    setStep(statusEls.stepFocus, `Active #${status.capturedTabId}`, 'ok');
   } else {
-    setStep(statusEls.stepFocus, `Hosted #${status.capturedTabId}`, 'warn');
+    setStep(statusEls.stepFocus, `Needs Focus #${status.capturedTabId}`, 'warn');
   }
 }
 
