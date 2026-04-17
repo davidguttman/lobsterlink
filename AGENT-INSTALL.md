@@ -112,4 +112,4 @@ If you're not running in OpenClaw, the shape is the same:
 
 ## After install
 
-Open the recorded bridge URL `chrome-extension://<extension-id>/bridge.html` and follow the numbered Agent Steps on that page. The bridge has everything you need: target tab picker, start/stop host, current peer ID, show-hosted-tab button. Record that full URL in the LobsterLink skill during install so future runs can open it directly without rediscovering the extension ID.
+Open the recorded bridge URL `chrome-extension://<extension-id>/bridge.html` and follow the numbered Agent Steps on that page. The bridge has everything you need: target tab picker, start/stop host, current peer ID, viewer URL, show-hosted-tab button. The bridge page is the source of truth for the peer ID and viewer URL — read them from the bridge fields, not from any overlay on the hosted tab, and reopen `bridge.html` to recover current state if `Start Host` leaves it in the background. Record the full bridge URL in the LobsterLink skill during install so future runs can open it directly without rediscovering the extension ID.
