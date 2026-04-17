@@ -1188,10 +1188,21 @@ async function setHostViewport(width, height) {
   const tabId = hostState.capturedTabId;
   log('[LOBSTERLINK:bg] Setting host viewport to', width, 'x', height);
 
-  // Resize the browser window to match so CSS viewport and physical window align
+  // Resize the browser window so the tab's *inner* viewport matches the
+  // requested CSS viewport. chrome.windows.update takes outer-window
+  // dimensions (including title bar, toolbar, tab strip, frame chrome), so
+  // we add the current outer-vs-inner delta before asking. Without this,
+  // the viewer sees a letterbox because the host's actual viewport ends up
+  // smaller than the size that was requested.
   try {
     const tab = await chrome.tabs.get(tabId);
-    await chrome.windows.update(tab.windowId, { width, height });
+    const win = await chrome.windows.get(tab.windowId);
+    const deltaW = Math.max(0, (win.width || 0) - (tab.width || 0));
+    const deltaH = Math.max(0, (win.height || 0) - (tab.height || 0));
+    await chrome.windows.update(tab.windowId, {
+      width: width + deltaW,
+      height: height + deltaH
+    });
   } catch (e) {
     warn('[LOBSTERLINK:bg] Failed to resize window:', e.message || e);
   }
@@ -1510,6 +1521,7 @@ function getHostGuardExpression() {
     const installKey = '__lobsterlinkHostGuardsInstalled';
     const vendorPattern = /(1password|lastpass|dashlane|bitwarden)/i;
     const cursorRootId = '__lobsterlink_remote_cursor_root';
+    const overlayRootId = '__lobsterlink_overlay_root';
     const directSelectors = [
       'iframe[src^="chrome-extension://"]',
       'iframe[src^="moz-extension://"]',
@@ -1566,38 +1578,69 @@ function getHostGuardExpression() {
       return true;
     };
 
+    const ensureOverlayRoot = () => {
+      if (!document.documentElement) return null;
+      let root = document.getElementById(overlayRootId);
+      if (!root) {
+        root = document.createElement('div');
+        root.id = overlayRootId;
+        root.setAttribute('aria-hidden', 'true');
+        root.style.position = 'fixed';
+        root.style.top = '0';
+        root.style.left = '0';
+        root.style.width = '100vw';
+        root.style.height = '100vh';
+        root.style.pointerEvents = 'none';
+        root.style.zIndex = '2147483647';
+        root.style.margin = '0';
+        root.style.padding = '0';
+        root.style.border = '0';
+        root.style.background = 'transparent';
+      }
+      if (document.documentElement.lastElementChild !== root) {
+        document.documentElement.appendChild(root);
+      }
+      return root;
+    };
+
     const ensureCursor = () => {
-      if (!document.body) return null;
+      const overlayRoot = ensureOverlayRoot();
+      if (!overlayRoot) return null;
 
-      let root = document.getElementById(cursorRootId);
-      if (root) return root;
+      let dot = document.getElementById(cursorRootId);
+      if (!dot) {
+        dot = document.createElement('div');
+        dot.id = cursorRootId;
+        dot.setAttribute('aria-hidden', 'true');
+        dot.style.position = 'absolute';
+        dot.style.left = '0';
+        dot.style.top = '0';
+        dot.style.width = '18px';
+        dot.style.height = '18px';
+        dot.style.pointerEvents = 'none';
+        dot.style.opacity = '0';
+        dot.style.transform = 'translate(-9999px, -9999px)';
+        dot.style.transition = 'opacity 80ms linear';
+        dot.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="4.5" fill="rgba(255,255,255,0.92)" stroke="#111111" stroke-width="1.5"/><circle cx="9" cy="9" r="1.6" fill="#ff4d4f"/><path d="M9 1.5v3M9 13.5v3M1.5 9h3M13.5 9h3" stroke="#111111" stroke-width="1.4" stroke-linecap="round"/></svg>';
+      }
+      if (dot.parentElement !== overlayRoot) overlayRoot.appendChild(dot);
 
-      root = document.createElement('div');
-      root.id = cursorRootId;
-      root.setAttribute('aria-hidden', 'true');
-      root.style.position = 'fixed';
-      root.style.left = '0';
-      root.style.top = '0';
-      root.style.width = '18px';
-      root.style.height = '18px';
-      root.style.pointerEvents = 'none';
-      root.style.zIndex = '2147483647';
-      root.style.opacity = '0';
-      root.style.transform = 'translate(-9999px, -9999px)';
-      root.style.transition = 'opacity 80ms linear';
-      root.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="4.5" fill="rgba(255,255,255,0.92)" stroke="#111111" stroke-width="1.5"/><circle cx="9" cy="9" r="1.6" fill="#ff4d4f"/><path d="M9 1.5v3M9 13.5v3M1.5 9h3M13.5 9h3" stroke="#111111" stroke-width="1.4" stroke-linecap="round"/></svg>';
-      document.documentElement.appendChild(root);
-
+      // Idempotent window helpers, installed every guard run. They look up
+      // the dot each call so they survive reparenting/re-injection.
       window.__lobsterlinkUpdateRemoteCursor = (x, y, visible = true) => {
-        root.style.transform = 'translate(' + Math.round(x - 9) + 'px, ' + Math.round(y - 9) + 'px)';
-        root.style.opacity = visible ? '1' : '0';
+        ensureOverlayRoot();
+        const d = document.getElementById(cursorRootId);
+        if (!d) return;
+        d.style.transform = 'translate(' + Math.round(x - 9) + 'px, ' + Math.round(y - 9) + 'px)';
+        d.style.opacity = visible ? '1' : '0';
       };
 
       window.__lobsterlinkHideRemoteCursor = () => {
-        root.style.opacity = '0';
+        const d = document.getElementById(cursorRootId);
+        if (d) d.style.opacity = '0';
       };
 
-      return root;
+      return dot;
     };
 
     const scan = (root) => {
@@ -1640,11 +1683,22 @@ function getHostGuardExpression() {
     window[installKey] = true;
 
     const observer = new MutationObserver((mutations) => {
+      let htmlChildListTouched = false;
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
           if (node && node.nodeType === Node.ELEMENT_NODE) {
             scan(node);
           }
+        }
+        if (mutation.type === 'childList' &&
+            mutation.target === document.documentElement) {
+          htmlChildListTouched = true;
+        }
+      }
+      if (htmlChildListTouched) {
+        const root = document.getElementById(overlayRootId);
+        if (root && document.documentElement.lastElementChild !== root) {
+          document.documentElement.appendChild(root);
         }
       }
     });
@@ -1726,42 +1780,65 @@ async function handleInputEvent(evt) {
     return;
   }
 
-  let pageAgentResponse = null;
-  try {
-    pageAgentResponse = await routeInputToPageAgent(tabId, evt);
-  } catch (error) {
-    logDiagnostic('page_agent_route_failure', {
-      tabId,
-      type: evt.type,
-      action: evt.action,
-      error: error.message || String(error)
-    });
-  }
+  // Routing policy (raw-input primary):
+  //   screencast + debugger  → raw CDP Input.dispatch{Mouse,Key}Event for mouse/key.
+  //                            This is browser-level input and is the only path that
+  //                            reliably reaches cross-origin iframes (reCAPTCHA,
+  //                            LinkedIn challenge frames, payment iframes, etc.).
+  //                            Page-agent DOM synthesis (elementFromPoint + .click)
+  //                            cannot cross those boundaries and silently no-ops.
+  //   clipboard              → page-agent (DOM access for selection text / text
+  //                            insertion into editables; no CDP equivalent here).
+  //   tabCapture or no CDP   → page-agent is the only option; fall through to it.
+  const canUseCdp = hostState.captureMode === 'screencast' && hostState.debuggerAttached;
 
-  if (pageAgentResponse?.handled) {
+  if (canUseCdp && evt.type === 'mouse') {
+    dispatchMouseEvent(tabId, evt);
+    return;
+  }
+  if (canUseCdp && evt.type === 'key') {
+    dispatchKeyEvent(tabId, evt);
     return;
   }
 
-  if (hostState.captureMode === 'tabCapture' || evt.type === 'clipboard') {
-    return;
-  }
-  if (!hostState.debuggerAttached) {
-    if (!reattachInProgress) {
-      warn('[LOBSTERLINK:bg] Input dropped: debugger not attached, triggering reattach');
-      logDiagnostic('input_dropped_debugger_missing', {
+  if (evt.type === 'clipboard') {
+    try {
+      await routeInputToPageAgent(tabId, evt);
+    } catch (err) {
+      logDiagnostic('page_agent_route_failure', {
+        tabId,
         type: evt.type,
         action: evt.action,
-        tabId
+        error: err.message || String(err)
       });
-      scheduleDebuggerRecovery(DEBUGGER_REATTACH_BASE_MS, 'input_while_detached');
     }
     return;
   }
 
-  if (evt.type === 'mouse') {
-    dispatchMouseEvent(tabId, evt);
-  } else if (evt.type === 'key') {
-    dispatchKeyEvent(tabId, evt);
+  if (hostState.captureMode === 'tabCapture') {
+    try {
+      await routeInputToPageAgent(tabId, evt);
+    } catch (err) {
+      logDiagnostic('page_agent_route_failure', {
+        tabId,
+        type: evt.type,
+        action: evt.action,
+        error: err.message || String(err)
+      });
+    }
+    return;
+  }
+
+  // Screencast mode but debugger is detached — drop event and kick off recovery
+  // rather than silently falling back to synthetic DOM events.
+  if (!reattachInProgress) {
+    warn('[LOBSTERLINK:bg] Input dropped: debugger not attached, triggering reattach');
+    logDiagnostic('input_dropped_debugger_missing', {
+      type: evt.type,
+      action: evt.action,
+      tabId
+    });
+    scheduleDebuggerRecovery(DEBUGGER_REATTACH_BASE_MS, 'input_while_detached');
   }
 }
 
@@ -1770,6 +1847,9 @@ function dispatchMouseEvent(tabId, evt) {
 
   if (evt.action === 'move' || evt.action === 'down' || evt.action === 'up') {
     updateHostRemoteCursor(tabId, evt.x, evt.y, true);
+    // Decoupled hover-target visualization. The page agent only reads hit-test
+    // state and draws an outline — it never handles the click itself.
+    sendHoverHint(tabId, evt.x, evt.y);
   }
 
   if (evt.action === 'wheel') {
@@ -1791,24 +1871,70 @@ function dispatchMouseEvent(tabId, evt) {
     up: 'mouseReleased'
   };
 
+  // `buttons` is the bitmask of currently-held buttons (1=left, 2=right, 4=middle).
+  // Forwarding it during moves is what turns a hover into a drag as far as
+  // Blink / page listeners are concerned.
+  const heldButtons = Number.isInteger(evt.buttons) ? evt.buttons : 0;
+  const primaryFromHeld = heldButtons & 1 ? 'left' :
+                          heldButtons & 2 ? 'right' :
+                          heldButtons & 4 ? 'middle' : 'none';
+
+  let button;
+  if (evt.action === 'move') {
+    // During a drag the held button must ride along on moves.
+    button = heldButtons ? primaryFromHeld : (evt.button || 'none');
+  } else {
+    button = evt.button || 'left';
+  }
+
+  // clickCount must be ≥1 on BOTH mousePressed and mouseReleased for Blink to
+  // synthesize a 'click' event. A release with clickCount:0 suppresses the
+  // click — that's what was breaking LinkedIn header dropdowns and other
+  // custom controls that listen on 'click' rather than raw mouseup.
+  let clickCount;
+  if (evt.action === 'move') {
+    clickCount = 0;
+  } else if (typeof evt.clickCount === 'number') {
+    clickCount = evt.clickCount;
+  } else {
+    clickCount = 1;
+  }
+
   const params = {
     type: typeMap[evt.action],
     x: evt.x,
     y: evt.y,
-    // 'none' for moves (no button held), 'left' default for clicks
-    button: evt.button || (evt.action === 'move' ? 'none' : 'left'),
-    clickCount: evt.clickCount || (evt.action === 'down' ? 1 : 0)
+    button,
+    buttons: heldButtons,
+    clickCount
   };
 
   if (evt.modifiers) params.modifiers = evt.modifiers;
 
   if (evt.action !== 'move') {
-    log('[LOBSTERLINK:bg] Dispatching mouse', evt.action, 'at', evt.x, evt.y, 'button:', params.button);
+    log('[LOBSTERLINK:bg] Dispatching mouse', evt.action, 'at', evt.x, evt.y,
+      '| button:', params.button, '| buttons:', params.buttons, '| clickCount:', params.clickCount);
   }
 
   chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', params).catch(err => {
     error('[LOBSTERLINK:bg] dispatchMouseEvent(' + evt.action + ') failed:', err.message || err);
   });
+}
+
+// Throttled hover-target hint to the page agent. Read-only — the page agent
+// looks up the element at (x, y) and outlines it. This is a visualization
+// only; raw CDP remains the sole path for delivering the actual click.
+const HOVER_HINT_INTERVAL_MS = 50;
+let lastHoverHintMs = 0;
+function sendHoverHint(tabId, x, y) {
+  const now = Date.now();
+  if (now - lastHoverHintMs < HOVER_HINT_INTERVAL_MS) return;
+  lastHoverHintMs = now;
+  chrome.tabs.sendMessage(tabId, {
+    action: 'pageAgentHoverHint',
+    x,
+    y
+  }).catch(() => { /* agent may not be injected yet */ });
 }
 
 function dispatchKeyEvent(tabId, evt) {

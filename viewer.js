@@ -212,9 +212,7 @@ function clearReconnectTimer() {
 function updateDebugPanel() {
   if (!debugEnabled) return;
   const rect = video.getBoundingClientRect();
-  const crop = getSourceContentRect();
-  const inputViewport = getInputViewportSize();
-  const rendered = getRenderedVideoRect();
+  const inputViewport = getHostViewportSize();
   const track = video.srcObject ? video.srcObject.getVideoTracks()[0] : null;
   const trackSettings = track ? track.getSettings() : null;
 
@@ -224,15 +222,11 @@ function updateDebugPanel() {
     `host window: ${hostMetrics?.windowWidth ?? 'n/a'}x${hostMetrics?.windowHeight ?? 'n/a'}`,
     `host tab: ${hostMetrics?.tabWidth ?? 'n/a'}x${hostMetrics?.tabHeight ?? 'n/a'}`,
     `host viewport: ${hostMetrics?.viewportWidth ?? 'n/a'}x${hostMetrics?.viewportHeight ?? 'n/a'}`,
-    `host visual viewport: ${hostMetrics?.visualViewportWidth ?? 'n/a'}x${hostMetrics?.visualViewportHeight ?? 'n/a'} @ ${hostMetrics?.visualViewportOffsetLeft ?? 'n/a'},${hostMetrics?.visualViewportOffsetTop ?? 'n/a'} scale ${hostMetrics?.visualViewportScale ?? 'n/a'}`,
     `host dpr: ${hostMetrics?.devicePixelRatio ?? 'n/a'}`,
-    `remote viewport: ${remoteViewport.width}x${remoteViewport.height}`,
-    `input viewport: ${inputViewport.width}x${inputViewport.height}`,
+    `input viewport (mapping target): ${inputViewport.width}x${inputViewport.height}`,
     `video intrinsic: ${video.videoWidth || 0}x${video.videoHeight || 0}`,
     `track settings: ${trackSettings?.width ?? 'n/a'}x${trackSettings?.height ?? 'n/a'}`,
-    `source crop: ${Math.round(crop.width)}x${Math.round(crop.height)} @ ${Math.round(crop.x)},${Math.round(crop.y)}`,
-    `video box: ${Math.round(rect.width)}x${Math.round(rect.height)}`,
-    `rendered box: ${Math.round(rendered.width || 0)}x${Math.round(rendered.height || 0)}`,
+    `video bbox: ${Math.round(rect.width)}x${Math.round(rect.height)} @ ${Math.round(rect.left)},${Math.round(rect.top)}`,
     `viewer window: ${window.innerWidth}x${window.innerHeight}`
   ];
 
@@ -377,6 +371,13 @@ function sameViewportSize(a, b) {
 }
 
 function getDesiredHostViewport() {
+  // The video container — the viewer area reserved below the nav bar — is
+  // the sole host interaction plane. Ask the host to set its viewport to
+  // exactly the container's current client size (combined with the outer-
+  // vs-inner delta fix in background.setHostViewport, the host's inner tab
+  // viewport ends up equal to this value). That makes the mapping identity
+  // inside the video rect: every viewer pixel in the plane == one host
+  // pixel. The nav strip is outside this plane by construction.
   const width = Math.round(videoContainer.clientWidth || 0);
   const height = Math.round(videoContainer.clientHeight || 0);
 
@@ -636,9 +637,28 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
-function getInputViewportSize() {
-  const width = hostMetrics?.visualViewportWidth || hostMetrics?.viewportWidth;
-  const height = hostMetrics?.visualViewportHeight || hostMetrics?.viewportHeight;
+// --- 1:1 geometry contract (screencast/raw-CDP) ---
+//
+// Contract from the host: the outbound video frame's entire extent
+// corresponds to the host page's *layout* viewport (hostMetrics.viewport{W,H})
+// in CSS pixels. Aspect ratio is preserved end-to-end. No cropping, no
+// letterboxing inside the frame.
+//
+// Given that contract, the only inputs needed for viewer→CDP mapping are:
+//   1. the video element's actual painted box on the viewer page
+//      (video.getBoundingClientRect() — the ground truth of what the user sees)
+//   2. the host layout viewport dimensions (hostMetrics.viewportWidth/Height)
+//
+// We explicitly do NOT use visualViewport*: CDP Input.dispatchMouseEvent
+// expects layout-viewport coordinates, and elementFromPoint on the host uses
+// the same frame. Pinch-zoom / virtual keyboard must not shift the mapping.
+// We also no longer reconstruct a "content crop" from frame × DPR heuristics;
+// that inference was the source of drift whenever the host and viewer were
+// briefly out of sync after resize/navigation/DPR changes.
+
+function getHostViewportSize() {
+  const width = Math.round(hostMetrics?.viewportWidth || 0);
+  const height = Math.round(hostMetrics?.viewportHeight || 0);
   if (width > 0 && height > 0) {
     return { width, height };
   }
@@ -656,134 +676,35 @@ function getSourceFrameSize() {
   };
 }
 
-function getSourceContentRect() {
-  const frame = getSourceFrameSize();
-  const viewport = getInputViewportSize();
-  const devicePixelRatio = Math.max(1, hostMetrics?.devicePixelRatio || 1);
-
-  if (!frame.width || !frame.height || !viewport.width || !viewport.height) {
-    return { x: 0, y: 0, width: frame.width || 1, height: frame.height || 1 };
-  }
-
-  const expectedWidth = Math.max(1, viewport.width * devicePixelRatio);
-  const expectedHeight = Math.max(1, viewport.height * devicePixelRatio);
-
-  if (expectedWidth > 0 && expectedHeight > 0) {
-    let contentWidth = expectedWidth;
-    let contentHeight = expectedHeight;
-
-    if (frame.width < expectedWidth || frame.height < expectedHeight) {
-      const scale = Math.min(frame.width / expectedWidth, frame.height / expectedHeight);
-      contentWidth = expectedWidth * scale;
-      contentHeight = expectedHeight * scale;
-    }
-
-    if (contentWidth > 0 && contentHeight > 0 &&
-        contentWidth <= frame.width + 1 && contentHeight <= frame.height + 1) {
-      return {
-        x: (frame.width - contentWidth) / 2,
-        y: (frame.height - contentHeight) / 2,
-        width: contentWidth,
-        height: contentHeight
-      };
-    }
-  }
-
-  const frameAspect = frame.width / frame.height;
-  const viewportAspect = viewport.width / viewport.height;
-
-  if (Math.abs(frameAspect - viewportAspect) < 0.001) {
-    return {
-      x: 0,
-      y: 0,
-      width: frame.width,
-      height: frame.height
-    };
-  }
-
-  if (frameAspect > viewportAspect) {
-    const width = frame.height * viewportAspect;
-    return {
-      x: (frame.width - width) / 2,
-      y: 0,
-      width,
-      height: frame.height
-    };
-  }
-
-  const height = frame.width / viewportAspect;
-  return {
-    x: 0,
-    y: (frame.height - height) / 2,
-    width: frame.width,
-    height
-  };
-}
-
-function getVideoLayout() {
-  const containerRect = videoContainer.getBoundingClientRect();
-  const containerWidth = videoContainer.clientWidth || containerRect.width || 1;
-  const containerHeight = videoContainer.clientHeight || containerRect.height || 1;
-  const frame = getSourceFrameSize();
-  const crop = getSourceContentRect();
-  const scale = Math.min(containerWidth / crop.width, containerHeight / crop.height);
-  const renderedWidth = crop.width * scale;
-  const renderedHeight = crop.height * scale;
-  const renderedLeft = (containerWidth - renderedWidth) / 2;
-  const renderedTop = (containerHeight - renderedHeight) / 2;
-
-  return {
-    frame,
-    crop,
-    scale,
-    containerRect,
-    renderedLeft,
-    renderedTop,
-    renderedWidth,
-    renderedHeight,
-    videoLeft: renderedLeft - (crop.x * scale),
-    videoTop: renderedTop - (crop.y * scale),
-    videoWidth: frame.width * scale,
-    videoHeight: frame.height * scale
-  };
-}
-
 function layoutVideo() {
-  const layout = getVideoLayout();
-  video.style.left = `${layout.videoLeft}px`;
-  video.style.top = `${layout.videoTop}px`;
-  video.style.width = `${layout.videoWidth}px`;
-  video.style.height = `${layout.videoHeight}px`;
-}
-
-function getRenderedVideoRect() {
-  const layout = getVideoLayout();
-  return {
-    left: layout.containerRect.left + layout.renderedLeft,
-    top: layout.containerRect.top + layout.renderedTop,
-    width: layout.renderedWidth,
-    height: layout.renderedHeight
-  };
+  // Aspect-fit the video inside the container using the frame's own intrinsic
+  // aspect ratio. Explicit width/height on the video element makes the
+  // painted box equal to getBoundingClientRect() — no reconstruction, no
+  // heuristics, no "rendered rect" vs "video box" disagreement.
+  const containerWidth = videoContainer.clientWidth || 1;
+  const containerHeight = videoContainer.clientHeight || 1;
+  const frame = getSourceFrameSize();
+  const scale = Math.min(containerWidth / frame.width, containerHeight / frame.height);
+  const w = frame.width * scale;
+  const h = frame.height * scale;
+  video.style.left = `${(containerWidth - w) / 2}px`;
+  video.style.top = `${(containerHeight - h) / 2}px`;
+  video.style.width = `${w}px`;
+  video.style.height = `${h}px`;
 }
 
 function mapCoordsFromClientPoint(clientX, clientY) {
-  const inputViewport = getInputViewportSize();
-  const rect = getRenderedVideoRect();
+  const viewport = getHostViewportSize();
+  // Ground truth: the video's actual painted rect on screen.
+  const rect = video.getBoundingClientRect();
   const safeWidth = rect.width || 1;
   const safeHeight = rect.height || 1;
 
   const localX = clamp(clientX - rect.left, 0, safeWidth);
   const localY = clamp(clientY - rect.top, 0, safeHeight);
 
-  const x = clamp(Math.round((localX / safeWidth) * inputViewport.width), 0, Math.max(0, inputViewport.width - 1));
-  const y = clamp(Math.round((localY / safeHeight) * inputViewport.height), 0, Math.max(0, inputViewport.height - 1));
-
-  if (isNaN(x) || isNaN(y) || x < -100 || y < -100 ||
-      x > inputViewport.width + 100 || y > inputViewport.height + 100) {
-    warn('[LOBSTERLINK:viewer] Bad coords:', x, y,
-      '| rendered rect:', safeWidth, 'x', safeHeight,
-      '| inputViewport:', inputViewport.width, 'x', inputViewport.height);
-  }
+  const x = clamp(Math.round((localX / safeWidth) * viewport.width), 0, Math.max(0, viewport.width - 1));
+  const y = clamp(Math.round((localY / safeHeight) * viewport.height), 0, Math.max(0, viewport.height - 1));
 
   return { x, y };
 }
@@ -815,57 +736,106 @@ function findTouchById(touchList, identifier) {
 const BUTTON_MAP = ['left', 'middle', 'right'];
 
 // --- Mouse events (with throttled mousemove) ---
+// Drag support: mousedown arms `dragActive`, and mousemove/mouseup listen at
+// document level so the drag keeps producing events when the pointer leaves
+// the video rect. `e.buttons` is the native bitmask of held buttons and is
+// forwarded straight to CDP so the host sees a real drag, not a hover.
 
-video.addEventListener('mousemove', (e) => {
-  if (shouldIgnoreMouseEvent()) return;
+let dragActive = false;
 
+function isPointOverVideo(clientX, clientY) {
+  const rect = video.getBoundingClientRect();
+  return clientX >= rect.left && clientX <= rect.right &&
+         clientY >= rect.top && clientY <= rect.bottom;
+}
+
+function flushMousemove(evt) {
   const now = performance.now();
-  const { x, y } = mapCoords(e);
-  const evt = { type: 'mouse', action: 'move', x, y, modifiers: getModifiers(e) };
-
   if (now - lastMousemoveTime >= MOUSEMOVE_INTERVAL_MS) {
     sendInput(evt);
     lastMousemoveTime = now;
     pendingMousemove = null;
-  } else {
-    // Buffer the latest move and flush on next frame
-    pendingMousemove = evt;
-    if (!mousemoveRafId) {
-      mousemoveRafId = requestAnimationFrame(() => {
-        mousemoveRafId = null;
-        if (pendingMousemove) {
-          sendInput(pendingMousemove);
-          lastMousemoveTime = performance.now();
-          pendingMousemove = null;
-        }
-      });
-    }
+    return;
   }
-});
+  pendingMousemove = evt;
+  if (!mousemoveRafId) {
+    mousemoveRafId = requestAnimationFrame(() => {
+      mousemoveRafId = null;
+      if (pendingMousemove) {
+        sendInput(pendingMousemove);
+        lastMousemoveTime = performance.now();
+        pendingMousemove = null;
+      }
+    });
+  }
+}
+
+function handleDocumentMousemove(e) {
+  if (shouldIgnoreMouseEvent()) return;
+  const isDragging = dragActive && e.buttons !== 0;
+  if (!isDragging && !isPointOverVideo(e.clientX, e.clientY)) return;
+  const { x, y } = mapCoords(e);
+  flushMousemove({
+    type: 'mouse', action: 'move', x, y,
+    buttons: e.buttons,
+    modifiers: getModifiers(e)
+  });
+}
+
+document.addEventListener('mousemove', handleDocumentMousemove);
 
 video.addEventListener('mousedown', (e) => {
   if (shouldIgnoreMouseEvent()) return;
 
   preventDefaultIfPossible(e);
   focusVideoForInput();
+  dragActive = true;
   const { x, y } = mapCoords(e);
   sendInput({
     type: 'mouse', action: 'down', x, y,
     button: BUTTON_MAP[e.button] || 'left',
+    buttons: e.buttons,
     clickCount: e.detail || 1,
     modifiers: getModifiers(e)
   });
 });
 
-video.addEventListener('mouseup', (e) => {
+function handleDocumentMouseup(e) {
+  if (!dragActive) return;
   if (shouldIgnoreMouseEvent()) return;
-
   preventDefaultIfPossible(e);
   const { x, y } = mapCoords(e);
   sendInput({
     type: 'mouse', action: 'up', x, y,
     button: BUTTON_MAP[e.button] || 'left',
+    // Keep clickCount=1 on release so Blink emits a proper 'click' after a
+    // matching press — custom controls (LinkedIn header dropdowns, etc.)
+    // listen on 'click', not on raw mouseup.
+    buttons: e.buttons,
+    clickCount: 1,
     modifiers: getModifiers(e)
+  });
+  if (!e.buttons) {
+    dragActive = false;
+  }
+}
+
+document.addEventListener('mouseup', handleDocumentMouseup, true);
+
+// If the viewer tab loses focus mid-drag, browsers may swallow the mouseup.
+// Forge a no-click release so the host doesn't get stuck with a held button.
+// clickCount:0 tells Blink *not* to synthesize a 'click' on this release —
+// we just need to cancel the drag without triggering a stray activation.
+window.addEventListener('blur', () => {
+  if (!dragActive) return;
+  dragActive = false;
+  if (!dataConn || !dataConn.open) return;
+  sendInput({
+    type: 'mouse', action: 'up', x: 0, y: 0,
+    button: 'left',
+    buttons: 0,
+    clickCount: 0,
+    modifiers: 0
   });
 });
 
@@ -959,6 +929,7 @@ video.addEventListener('touchend', (e) => {
       x,
       y,
       button: 'left',
+      buttons: 1,
       clickCount: 1,
       modifiers: 0
     });
@@ -968,6 +939,8 @@ video.addEventListener('touchend', (e) => {
       x,
       y,
       button: 'left',
+      buttons: 0,
+      clickCount: 1,
       modifiers: 0
     });
   }

@@ -7,6 +7,7 @@
 
   const cursorRootId = '__lobsterlink_remote_cursor_root';
   const hostOverlayId = '__lobsterlink_host_id_overlay';
+  const hoverOutlineId = '__lobsterlink_hover_outline';
   const vendorPattern = /(1password|lastpass|dashlane|bitwarden)/i;
   const directSelectors = [
     'iframe[src^="chrome-extension://"]',
@@ -168,82 +169,241 @@
     return suppressed;
   }
 
-  function ensureCursor() {
+  // --- Overlay root ---
+  //
+  // All host-side visualizations (cursor dot, hover outline, host-id badge)
+  // live inside one dedicated root sitting at the max practical z-index
+  // (2147483647). The root is re-appended to the end of <html> on every
+  // update so DOM-order ties resolve in our favor. This is the strongest
+  // practical layering we can do from a page-agent content script: only the
+  // browser's native top-layer (open <dialog>, fullscreen element) can still
+  // paint above us.
+  const overlayRootId = '__lobsterlink_overlay_root';
+
+  function ensureOverlayRoot() {
     if (!document.documentElement) return null;
-
-    let root = document.getElementById(cursorRootId);
-    if (root) return root;
-
-    root = document.createElement('div');
-    root.id = cursorRootId;
-    root.setAttribute('aria-hidden', 'true');
-    root.style.position = 'fixed';
-    root.style.left = '0';
-    root.style.top = '0';
-    root.style.width = '18px';
-    root.style.height = '18px';
-    root.style.pointerEvents = 'none';
-    root.style.zIndex = '2147483647';
-    root.style.opacity = '0';
-    root.style.transform = 'translate(-9999px, -9999px)';
-    root.style.transition = 'opacity 80ms linear';
-    root.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="4.5" fill="rgba(255,255,255,0.92)" stroke="#111111" stroke-width="1.5"/><circle cx="9" cy="9" r="1.6" fill="#ff4d4f"/><path d="M9 1.5v3M9 13.5v3M1.5 9h3M13.5 9h3" stroke="#111111" stroke-width="1.4" stroke-linecap="round"/></svg>';
-    document.documentElement.appendChild(root);
+    let root = document.getElementById(overlayRootId);
+    if (!root) {
+      root = document.createElement('div');
+      root.id = overlayRootId;
+      root.setAttribute('aria-hidden', 'true');
+      root.style.position = 'fixed';
+      root.style.top = '0';
+      root.style.left = '0';
+      root.style.width = '100vw';
+      root.style.height = '100vh';
+      root.style.pointerEvents = 'none';
+      root.style.zIndex = '2147483647';
+      // Prevent page CSS from shifting/transforming our overlays.
+      root.style.margin = '0';
+      root.style.padding = '0';
+      root.style.border = '0';
+      root.style.background = 'transparent';
+    }
+    if (document.documentElement.lastElementChild !== root) {
+      document.documentElement.appendChild(root);
+    }
     return root;
+  }
+
+  function ensureCursor() {
+    const root = ensureOverlayRoot();
+    if (!root) return null;
+
+    let dot = document.getElementById(cursorRootId);
+    if (!dot) {
+      dot = document.createElement('div');
+      dot.id = cursorRootId;
+      dot.setAttribute('aria-hidden', 'true');
+      dot.style.position = 'absolute';
+      dot.style.left = '0';
+      dot.style.top = '0';
+      dot.style.width = '18px';
+      dot.style.height = '18px';
+      dot.style.pointerEvents = 'none';
+      dot.style.opacity = '0';
+      dot.style.transform = 'translate(-9999px, -9999px)';
+      dot.style.transition = 'opacity 80ms linear';
+      dot.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="4.5" fill="rgba(255,255,255,0.92)" stroke="#111111" stroke-width="1.5"/><circle cx="9" cy="9" r="1.6" fill="#ff4d4f"/><path d="M9 1.5v3M9 13.5v3M1.5 9h3M13.5 9h3" stroke="#111111" stroke-width="1.4" stroke-linecap="round"/></svg>';
+    }
+    if (dot.parentElement !== root) root.appendChild(dot);
+
+    // Expose idempotent window helpers; they look up the dot each call so
+    // they keep working across re-injections and re-parenting.
+    window.__lobsterlinkUpdateRemoteCursor = (x, y, visible = true) => {
+      ensureOverlayRoot();
+      const d = document.getElementById(cursorRootId);
+      if (!d) return;
+      d.style.transform = `translate(${Math.round(x - 9)}px, ${Math.round(y - 9)}px)`;
+      d.style.opacity = visible ? '1' : '0';
+    };
+    window.__lobsterlinkHideRemoteCursor = () => {
+      const d = document.getElementById(cursorRootId);
+      if (d) d.style.opacity = '0';
+    };
+
+    return dot;
   }
 
   function updateCursor(x, y, visible = true) {
-    const root = ensureCursor();
-    if (!root) return;
-    root.style.transform = `translate(${Math.round(x - 9)}px, ${Math.round(y - 9)}px)`;
-    root.style.opacity = visible ? '1' : '0';
+    const dot = ensureCursor();
+    if (!dot) return;
+    dot.style.transform = `translate(${Math.round(x - 9)}px, ${Math.round(y - 9)}px)`;
+    dot.style.opacity = visible ? '1' : '0';
+  }
+
+  // --- Read-only hover-target outline ---
+  // Draws a rectangle around the element under (x, y). This is pure
+  // visualization: hit-testing happens here, but the actual mouse event is
+  // delivered via raw CDP (see background.js). Keeping the outline purely
+  // read-only avoids reintroducing synthetic .click() delivery, which was
+  // what broke cross-origin iframes like reCAPTCHA.
+  const hoverOutlineState = {
+    lastKey: '',
+    lastMs: 0,
+    hideTimer: null
+  };
+  const HOVER_OUTLINE_IDLE_MS = 600;
+
+  function ensureHoverOutline() {
+    const root = ensureOverlayRoot();
+    if (!root) return null;
+    let outline = document.getElementById(hoverOutlineId);
+    if (!outline) {
+      outline = document.createElement('div');
+      outline.id = hoverOutlineId;
+      outline.setAttribute('aria-hidden', 'true');
+      outline.style.position = 'absolute';
+      outline.style.left = '0';
+      outline.style.top = '0';
+      outline.style.width = '0';
+      outline.style.height = '0';
+      outline.style.boxSizing = 'border-box';
+      outline.style.border = '2px solid rgba(255, 77, 79, 0.85)';
+      outline.style.borderRadius = '3px';
+      outline.style.boxShadow = '0 0 0 1px rgba(255,255,255,0.55) inset, 0 0 0 1px rgba(0,0,0,0.35)';
+      outline.style.pointerEvents = 'none';
+      outline.style.opacity = '0';
+      outline.style.transform = 'translate(-9999px, -9999px)';
+      outline.style.transition = 'opacity 80ms linear';
+    }
+    if (outline.parentElement !== root) root.appendChild(outline);
+    return outline;
+  }
+
+  function hideHoverOutline() {
+    const outline = document.getElementById(hoverOutlineId);
+    if (outline) outline.style.opacity = '0';
+    hoverOutlineState.lastKey = '';
+  }
+
+  function pickHoverTarget(x, y) {
+    const raw = elementFromPointDeep(x, y);
+    if (!raw) return null;
+    // Skip our own overlay elements (they're pointer-events:none so this
+    // should already be a no-op, but guard against stacking edge cases).
+    if (raw.id === hoverOutlineId || raw.id === cursorRootId ||
+        raw.id === hostOverlayId || raw.id === overlayRootId ||
+        raw.closest?.('#' + overlayRootId)) {
+      return null;
+    }
+    return raw.closest(
+      'button, a[href], input, select, textarea, label, summary, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [contenteditable=""], [contenteditable="true"], [onclick], [tabindex]:not([tabindex="-1"])'
+    );
+  }
+
+  function handleHoverHint(msg) {
+    if (typeof msg.x !== 'number' || typeof msg.y !== 'number') return;
+    state.pointerX = msg.x;
+    state.pointerY = msg.y;
+    hoverOutlineState.lastMs = Date.now();
+
+    const target = pickHoverTarget(msg.x, msg.y);
+    const outline = ensureHoverOutline();
+    if (!outline) return;
+
+    if (!target) {
+      outline.style.opacity = '0';
+      hoverOutlineState.lastKey = '';
+      return;
+    }
+
+    const rect = target.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      outline.style.opacity = '0';
+      hoverOutlineState.lastKey = '';
+      return;
+    }
+
+    const key = Math.round(rect.left) + ':' + Math.round(rect.top) + ':' +
+                Math.round(rect.width) + ':' + Math.round(rect.height);
+    if (key !== hoverOutlineState.lastKey) {
+      outline.style.transform = `translate(${Math.round(rect.left)}px, ${Math.round(rect.top)}px)`;
+      outline.style.width = Math.round(rect.width) + 'px';
+      outline.style.height = Math.round(rect.height) + 'px';
+      hoverOutlineState.lastKey = key;
+    }
+    outline.style.opacity = '1';
+
+    // Auto-hide when no hint arrives for a while (pointer left the viewport
+    // or the viewer disconnected) so the outline doesn't sit stale.
+    if (hoverOutlineState.hideTimer) clearTimeout(hoverOutlineState.hideTimer);
+    hoverOutlineState.hideTimer = setTimeout(() => {
+      if (Date.now() - hoverOutlineState.lastMs >= HOVER_OUTLINE_IDLE_MS) {
+        hideHoverOutline();
+      }
+    }, HOVER_OUTLINE_IDLE_MS + 50);
   }
 
   function ensureHostOverlay() {
-    if (!document.documentElement) return null;
-    let root = document.getElementById(hostOverlayId);
-    if (root) return root;
-
-    root = document.createElement('div');
-    root.id = hostOverlayId;
-    root.setAttribute('aria-hidden', 'true');
-    root.style.position = 'fixed';
-    root.style.top = '8px';
-    root.style.right = '8px';
-    root.style.zIndex = '2147483646';
-    root.style.pointerEvents = 'none';
-    root.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
-    root.style.fontSize = '12px';
-    root.style.lineHeight = '1.2';
-    root.style.padding = '4px 8px';
-    root.style.background = 'rgba(9, 14, 30, 0.78)';
-    root.style.color = '#ffffff';
-    root.style.border = '1px solid rgba(255,255,255,0.22)';
-    root.style.borderRadius = '6px';
-    root.style.boxShadow = '0 2px 6px rgba(0,0,0,0.35)';
-    root.style.userSelect = 'none';
-    root.style.display = 'none';
-    document.documentElement.appendChild(root);
-    return root;
+    const root = ensureOverlayRoot();
+    if (!root) return null;
+    let badge = document.getElementById(hostOverlayId);
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.id = hostOverlayId;
+      badge.setAttribute('aria-hidden', 'true');
+      // Bottom-left: top-right is reserved by most sites for the account
+      // dropdown / notification bell; bottom-right often has chat widgets
+      // and cookie consent banners. Bottom-left is the least-contested
+      // region on most pages.
+      badge.style.position = 'absolute';
+      badge.style.bottom = '8px';
+      badge.style.left = '8px';
+      badge.style.pointerEvents = 'none';
+      badge.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+      badge.style.fontSize = '12px';
+      badge.style.lineHeight = '1.2';
+      badge.style.padding = '4px 8px';
+      badge.style.background = 'rgba(9, 14, 30, 0.78)';
+      badge.style.color = '#ffffff';
+      badge.style.border = '1px solid rgba(255,255,255,0.22)';
+      badge.style.borderRadius = '6px';
+      badge.style.boxShadow = '0 2px 6px rgba(0,0,0,0.35)';
+      badge.style.userSelect = 'none';
+      badge.style.display = 'none';
+    }
+    if (badge.parentElement !== root) root.appendChild(badge);
+    return badge;
   }
 
   function setHostOverlay(peerId) {
-    const root = ensureHostOverlay();
-    if (!root) return;
+    const badge = ensureHostOverlay();
+    if (!badge) return;
     if (!peerId) {
-      root.style.display = 'none';
-      root.textContent = '';
+      badge.style.display = 'none';
+      badge.textContent = '';
       return;
     }
-    root.textContent = 'LobsterLink host: ' + peerId;
-    root.style.display = 'block';
+    badge.textContent = 'LobsterLink host: ' + peerId;
+    badge.style.display = 'block';
   }
 
   function clearHostOverlay() {
-    const root = document.getElementById(hostOverlayId);
-    if (!root) return;
-    root.style.display = 'none';
-    root.textContent = '';
+    const badge = document.getElementById(hostOverlayId);
+    if (!badge) return;
+    badge.style.display = 'none';
+    badge.textContent = '';
   }
 
   function normalizeTarget(target) {
@@ -760,6 +920,16 @@
       return true;
     }
 
+    if (msg.action === 'pageAgentHoverHint') {
+      try {
+        handleHoverHint(msg);
+        sendResponse({ ok: true });
+      } catch (error) {
+        sendResponse({ ok: false, error: error.message || String(error) });
+      }
+      return true;
+    }
+
     if (msg.action !== 'pageAgentInput') return false;
 
     try {
@@ -782,11 +952,25 @@
   scanForInjectedUi(document);
 
   const observer = new MutationObserver((mutations) => {
+    let htmlChildListTouched = false;
     for (const mutation of mutations) {
       for (const node of mutation.addedNodes) {
         if (node?.nodeType === Node.ELEMENT_NODE) {
           scanForInjectedUi(node);
         }
+      }
+      if (mutation.type === 'childList' &&
+          mutation.target === document.documentElement) {
+        htmlChildListTouched = true;
+      }
+    }
+    // If anything was inserted at <html>'s top level (e.g. a site-injected
+    // modal portal), move our overlay root back to the end so it continues
+    // to win DOM-order ties at the max z-index.
+    if (htmlChildListTouched) {
+      const root = document.getElementById(overlayRootId);
+      if (root && document.documentElement.lastElementChild !== root) {
+        document.documentElement.appendChild(root);
       }
     }
   });
