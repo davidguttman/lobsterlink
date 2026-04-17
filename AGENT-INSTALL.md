@@ -39,6 +39,7 @@ If you're running inside OpenClaw, the goal is to load this unpacked extension i
 
 - `browser.defaultProfile = "openclaw"`
 - `browser.extraArgs` must include:
+  - `--disable-extensions-except=<ABSOLUTE_PATH_TO_EXTRACTED_LOBSTERLINK_DIRECTORY>`
   - `--load-extension=<ABSOLUTE_PATH_TO_EXTRACTED_LOBSTERLINK_DIRECTORY>`
 
 ### Example patch target
@@ -48,6 +49,7 @@ If you're running inside OpenClaw, the goal is to load this unpacked extension i
   "browser": {
     "defaultProfile": "openclaw",
     "extraArgs": [
+      "--disable-extensions-except=<ABSOLUTE_PATH_TO_EXTRACTED_LOBSTERLINK_DIRECTORY>",
       "--load-extension=<ABSOLUTE_PATH_TO_EXTRACTED_LOBSTERLINK_DIRECTORY>"
     ]
   }
@@ -65,6 +67,7 @@ If you're running inside OpenClaw, the goal is to load this unpacked extension i
 7. Verify the live Chromium process includes:
    - `--user-data-dir=...openclaw...`
    - `--remote-debugging-port=...`
+   - `--disable-extensions-except=<ABSOLUTE_PATH_TO_EXTRACTED_LOBSTERLINK_DIRECTORY>`
    - `--load-extension=<ABSOLUTE_PATH_TO_EXTRACTED_LOBSTERLINK_DIRECTORY>`
 8. Verify the extension is actually loaded by checking at least one of:
    - isolated profile Preferences or extension settings
@@ -73,7 +76,12 @@ If you're running inside OpenClaw, the goal is to load this unpacked extension i
    - Query CDP `/json/list` for targets with URLs starting `chrome-extension://` and read the ID from the URL.
    - Read the isolated profile's `Preferences` file (`<user-data-dir>/Default/Preferences`) and find the LobsterLink entry under `extensions.settings`; the key is the ID.
    - Open `chrome://extensions` in the isolated profile with Developer mode enabled and read the ID from the LobsterLink card.
-10. Report the exact config fields changed.
+10. Construct and note the full bridge URL: `chrome-extension://<EXTENSION_ID>/bridge.html`.
+11. Update the local LobsterLink skill file used by this runtime so its bridge URL placeholder is replaced with the real bridge URL from step 10.
+    - If both a repo copy and an installed/runtime copy exist, update the runtime copy that the agent will actually load.
+    - Do not leave the placeholder unresolved after install.
+    - In the same skill file, also set `INSTALLED = true` and record the extension ID and install date so future runs skip the install flow entirely.
+12. Report the exact config fields changed and the exact skill file path you updated.
 
 ### Required final answer
 
@@ -84,8 +92,10 @@ Your final answer must include:
 - Whether config was updated.
 - Whether OpenClaw/browser was restarted.
 - Extension ID.
+- Bridge URL.
 - Proof that Chromium was launched with the extension flags.
 - Proof that the extension is loaded in the isolated profile.
+- Whether the LobsterLink skill was updated, and which file/path was patched.
 
 Do the work, do not just describe it.
 
@@ -94,10 +104,12 @@ Do the work, do not just describe it.
 If you're not running in OpenClaw, the shape is the same:
 
 1. Download and unzip the LobsterLink repo.
-2. Launch Chromium with `--load-extension=<absolute-path-to-extracted-directory>`.
+2. Launch Chromium with:
+   - `--disable-extensions-except=<absolute-path-to-extracted-directory>`
+   - `--load-extension=<absolute-path-to-extracted-directory>`
 3. Verify the extension loaded by checking CDP `/json/list` for the extension service worker target.
-4. Report the extension ID back to the human. The most reliable source is CDP `/json/list` — look for targets with URLs starting `chrome-extension://` and read the ID from the URL.
+4. Report the extension ID and full bridge URL back to the human. The most reliable source is CDP `/json/list` — look for targets with URLs starting `chrome-extension://` and read the ID from the URL.
 
 ## After install
 
-Open `chrome-extension://<extension-id>/bridge.html` and follow the numbered Agent Steps on that page. The bridge has everything you need: target tab picker, start/stop host, current peer ID, show-hosted-tab button. You don't need to memorize a command surface — the page is the command surface.
+Open the recorded bridge URL `chrome-extension://<extension-id>/bridge.html` and follow the numbered Agent Steps on that page. The bridge has everything you need: target tab picker, start/stop host, current peer ID, show-hosted-tab button. Record that full URL in the LobsterLink skill during install so future runs can open it directly without rediscovering the extension ID.
