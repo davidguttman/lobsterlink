@@ -21,6 +21,8 @@ let remoteViewport = { width: 1920, height: 1080 };
 let currentTabId = null;
 let hostMetrics = null;
 let isMobileInputMode = false;
+let lastMobileKeyboardValue = '';
+let lastMobileKeyboardEventSummary = 'none';
 
 // --- Reconnect state ---
 let connectedPeerId = null;
@@ -216,7 +218,13 @@ function updateDebugPanel() {
   const track = video.srcObject ? video.srcObject.getVideoTracks()[0] : null;
   const trackSettings = track ? track.getSettings() : null;
 
+  const activeEl = document.activeElement;
   const lines = [
+    `mobile mode: ${isMobileInputMode}`,
+    `active element: ${activeEl?.id || activeEl?.tagName || 'none'}`,
+    `mobile input value length: ${mobileKeyboardInput?.value?.length ?? 'n/a'}`,
+    `mobile input selection: ${typeof mobileKeyboardInput?.selectionStart === 'number' ? mobileKeyboardInput.selectionStart : 'n/a'}-${typeof mobileKeyboardInput?.selectionEnd === 'number' ? mobileKeyboardInput.selectionEnd : 'n/a'}`,
+    `last mobile event: ${lastMobileKeyboardEventSummary}`,
     `mode: ${hostMetrics?.captureMode || 'unknown'}`,
     `host zoom: ${hostMetrics?.zoomFactor ?? 'n/a'}`,
     `host window: ${hostMetrics?.windowWidth ?? 'n/a'}x${hostMetrics?.windowHeight ?? 'n/a'}`,
@@ -444,7 +452,13 @@ function scheduleAutoViewport({ immediate = false } = {}) {
 }
 
 function sendInput(evt) {
-  if (!dataConn || !dataConn.open) return;
+  if (!dataConn || !dataConn.open) {
+    warn('[LOBSTERLINK:viewer] sendInput dropped (no connection)', {
+      type: evt?.type || null,
+      action: evt?.action || null
+    });
+    return;
+  }
   // Log non-move events to avoid spam
   if (evt.type !== 'mouse' || evt.action !== 'move') {
     log('[LOBSTERLINK:viewer] Sending input:', evt.type, evt.action,
@@ -505,12 +519,53 @@ function focusMobileKeyboardInput() {
   if (!mobileKeyboardInput) return;
   isMobileInputMode = true;
   mobileKeyboardInput.focus({ preventScroll: true });
+  try {
+    const end = mobileKeyboardInput.value.length;
+    mobileKeyboardInput.setSelectionRange(end, end);
+  } catch (e) {}
 }
 
-function resetMobileKeyboardInput() {
-  if (mobileKeyboardInput) {
-    mobileKeyboardInput.value = '';
+function maintainMobileKeyboardFocus() {
+  if (!isMobileInputMode) return;
+  requestAnimationFrame(() => {
+    if (!isMobileInputMode) return;
+    focusMobileKeyboardInput();
+  });
+}
+
+function setMobileKeyboardValue(value, selectionStart = null, selectionEnd = null) {
+  if (!mobileKeyboardInput) return;
+  mobileKeyboardInput.value = value;
+  lastMobileKeyboardValue = value;
+  if (selectionStart != null && selectionEnd != null) {
+    try {
+      mobileKeyboardInput.setSelectionRange(selectionStart, selectionEnd);
+    } catch (e) {}
   }
+}
+
+function diffMobileKeyboardText(previousText, nextText) {
+  let prefix = 0;
+  const maxPrefix = Math.min(previousText.length, nextText.length);
+  while (prefix < maxPrefix && previousText[prefix] === nextText[prefix]) {
+    prefix += 1;
+  }
+
+  let previousSuffix = previousText.length;
+  let nextSuffix = nextText.length;
+  while (
+    previousSuffix > prefix &&
+    nextSuffix > prefix &&
+    previousText[previousSuffix - 1] === nextText[nextSuffix - 1]
+  ) {
+    previousSuffix -= 1;
+    nextSuffix -= 1;
+  }
+
+  return {
+    removedText: previousText.slice(prefix, previousSuffix),
+    insertedText: nextText.slice(prefix, nextSuffix)
+  };
 }
 
 // --- Nav bar (Phase 3) ---
@@ -565,60 +620,75 @@ document.getElementById('viewport-select').addEventListener('change', (e) => {
 if (mobileKeyboardButton && mobileKeyboardInput) {
   mobileKeyboardButton.addEventListener('click', (e) => {
     e.preventDefault();
-    resetMobileKeyboardInput();
     focusMobileKeyboardInput();
   });
 
   mobileKeyboardInput.addEventListener('focus', () => {
     isMobileInputMode = true;
+    lastMobileKeyboardValue = mobileKeyboardInput.value || '';
   });
 
   mobileKeyboardInput.addEventListener('blur', () => {
-    isMobileInputMode = false;
-    resetMobileKeyboardInput();
+    setTimeout(() => {
+      if (isMobileInputMode) {
+        focusMobileKeyboardInput();
+        return;
+      }
+      isMobileInputMode = false;
+    }, 0);
   });
 
   mobileKeyboardInput.addEventListener('beforeinput', (e) => {
-    let keyTap = null;
-
-    if (e.inputType === 'deleteContentBackward') {
-      keyTap = ['Backspace', 'Backspace', 8];
-    } else if (e.inputType === 'deleteContentForward') {
-      keyTap = ['Delete', 'Delete', 46];
-    } else if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
-      keyTap = ['Enter', 'Enter', 13];
+    if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
+      e.preventDefault();
+      e.stopPropagation();
+      sendKeyTap('Enter', 'Enter', 13);
     }
-
-    if (!keyTap) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-    sendKeyTap(...keyTap);
-    resetMobileKeyboardInput();
-    requestAnimationFrame(() => {
-      if (isMobileInputMode) {
-        focusMobileKeyboardInput();
-      }
-    });
   });
 
   mobileKeyboardInput.addEventListener('input', (e) => {
     if (e.isComposing) return;
-    const text = mobileKeyboardInput.value;
-    if (!text) return;
 
-    sendInput({
-      type: 'clipboard',
-      action: 'pasteText',
-      text
+    const nextText = mobileKeyboardInput.value || '';
+    const previousText = lastMobileKeyboardValue || '';
+    const { removedText, insertedText } = diffMobileKeyboardText(previousText, nextText);
+
+    log('[LOBSTERLINK:viewer] Mobile input event', {
+      previousText,
+      nextText,
+      removedText,
+      insertedText,
+      inputType: e.inputType || null,
+      data: e.data || null
     });
-    resetMobileKeyboardInput();
 
-    requestAnimationFrame(() => {
-      if (isMobileInputMode) {
-        focusMobileKeyboardInput();
+    if (removedText) {
+      lastMobileKeyboardEventSummary = `delete:${removedText.length}`;
+      log('[LOBSTERLINK:viewer] Mobile diff delete', {
+        removedText,
+        count: removedText.length
+      });
+      for (let i = 0; i < removedText.length; i += 1) {
+        sendInput({
+          type: 'clipboard',
+          action: 'deleteBackward'
+        });
       }
-    });
+    }
+
+    if (insertedText) {
+      lastMobileKeyboardEventSummary = `insert:${insertedText}`;
+      log('[LOBSTERLINK:viewer] Mobile diff insert', {
+        insertedText
+      });
+      sendInput({
+        type: 'clipboard',
+        action: 'pasteText',
+        text: insertedText
+      });
+    }
+
+    setMobileKeyboardValue(nextText);
   });
 }
 
@@ -788,7 +858,11 @@ video.addEventListener('mousedown', (e) => {
   if (shouldIgnoreMouseEvent()) return;
 
   preventDefaultIfPossible(e);
-  focusVideoForInput();
+  if (isMobileInputMode) {
+    maintainMobileKeyboardFocus();
+  } else {
+    focusVideoForInput();
+  }
   dragActive = true;
   const { x, y } = mapCoords(e);
   sendInput({
@@ -861,6 +935,9 @@ video.addEventListener('touchstart', (e) => {
   }
 
   preventDefaultIfPossible(e);
+  if (isMobileInputMode) {
+    maintainMobileKeyboardFocus();
+  }
   const touch = e.touches[0];
   suppressMouseUntil = performance.now() + TOUCH_MOUSE_SUPPRESS_MS;
   activeTouchGesture = {
@@ -916,6 +993,9 @@ video.addEventListener('touchend', (e) => {
 
   preventDefaultIfPossible(e);
   suppressMouseUntil = performance.now() + TOUCH_MOUSE_SUPPRESS_MS;
+  if (isMobileInputMode) {
+    maintainMobileKeyboardFocus();
+  }
 
   const totalDx = touch.clientX - activeTouchGesture.startClientX;
   const totalDy = touch.clientY - activeTouchGesture.startClientY;
@@ -1051,7 +1131,11 @@ document.addEventListener('cut', (e) => {
 
 video.addEventListener('click', () => {
   if (shouldIgnoreMouseEvent()) return;
-  focusVideoForInput();
+  if (isMobileInputMode) {
+    maintainMobileKeyboardFocus();
+  } else {
+    focusVideoForInput();
+  }
 });
 video.addEventListener('loadedmetadata', () => {
   layoutVideo();
