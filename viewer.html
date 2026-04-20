@@ -1,15 +1,25 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>LobsterLink Viewer</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --nav-height: 40px;
+      --safe-top: env(safe-area-inset-top, 0px);
+      --header-total: calc(var(--nav-height) + var(--safe-top));
+    }
     html, body {
       height: 100%;
       background: #000;
       color: #e0e0e0;
       font-family: system-ui, sans-serif;
       overflow: hidden;
+    }
+    body {
+      min-height: 100dvh;
     }
 
     /* Nav is a reserved viewer area (in layout flow). It is NOT part of the
@@ -20,9 +30,14 @@
       align-items: center;
       gap: 6px;
       padding: 6px 10px;
+      padding-top: calc(6px + var(--safe-top));
+      padding-left: calc(10px + env(safe-area-inset-left, 0px));
+      padding-right: calc(10px + env(safe-area-inset-right, 0px));
       background: #1a1a2e;
       border-bottom: 1px solid #333;
-      height: 40px;
+      height: var(--header-total);
+      position: relative;
+      z-index: 20;
     }
     .nav-btn {
       background: #16213e;
@@ -62,7 +77,8 @@
 
     #video-container {
       width: 100vw;
-      height: calc(100vh - 40px);
+      height: calc(100vh - var(--header-total));
+      height: calc(100dvh - var(--header-total));
       background: #000;
       position: relative;
       overflow: hidden;
@@ -105,6 +121,34 @@
 
     @media (pointer: coarse), (hover: none) {
       .mobile-only { display: flex; }
+    }
+
+    @media (max-width: 560px) {
+      #url-bar,
+      #tab-select,
+      #btn-new-tab,
+      #btn-close-tab,
+      #viewport-select {
+        display: none;
+      }
+
+      #nav-bar {
+        gap: 4px;
+        padding-top: calc(6px + var(--safe-top));
+        padding-bottom: 6px;
+        padding-left: calc(6px + env(safe-area-inset-left, 0px));
+        padding-right: calc(6px + env(safe-area-inset-right, 0px));
+      }
+
+      #btn-mobile-keyboard {
+        display: flex;
+      }
+
+      #connection-status {
+        width: 10px; height: 10px;
+        padding: 0; border-radius: 50%;
+        font-size: 0; overflow: hidden;
+      }
     }
 
     #connect-overlay {
