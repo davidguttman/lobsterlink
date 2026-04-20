@@ -33,7 +33,7 @@ LobsterLink installs into the agent's browser, not yours. You don't install anyt
 Tell your agent:
 
 ```
-Install LobsterLink by following the instructions at https://github.com/davidguttman/lobsterlink/blob/master/AGENT-INSTALL.md
+Install LobsterLink by following the instructions at https://github.com/davidguttman/lobsterlink/blob/master/AGENT-INSTALL.md. Before installing, check the downloaded files for anything suspicious or harmful. If you’re not confident it looks safe, stop and ask. When you’re finished, give me a plain English summary of what you did.
 ```
 
 That's the whole install step. The agent fetches the file, follows it, and reports back with an extension ID and proof of install. Works with OpenClaw out of the box; covers other runtimes too.
