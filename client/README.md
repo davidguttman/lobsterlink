@@ -1,15 +1,13 @@
 # LobsterLink public web client
 
 This directory is a plain static site that hosts the LobsterLink viewer as a public web page.
-It is the same `viewer.html` / `viewer.js` used by the extension, but served over HTTPS
-so anyone with a peer ID can connect to a running LobsterLink host without installing the
-extension.
+It serves a hosted viewer entrypoint over HTTPS so anyone with a peer ID can connect to a
+running LobsterLink host without installing the extension.
 
 ## Files
 
-- `index.html` — viewer UI (copied from repo-root `viewer.html`)
-- `viewer.js` — viewer logic (copied from repo-root `viewer.js`, with the same-window
-  warning guarded so it is safe to run outside the extension)
+- `viewer.js` — shared viewer logic used by both the extension and hosted client
+- `viewer/index.html` — hosted viewer entrypoint with page metadata and the no-`?host=` redirect
 - `lib/peerjs.min.js` — PeerJS client library
 
 ## Serving

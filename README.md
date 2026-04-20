@@ -90,4 +90,4 @@ This repo ships with a skill at `openclaw/lobsterlink-tab-share/SKILL.md`. It op
 
 ### Public web viewer
 
-The `client/` directory is the standalone static viewer that powers `lobsterl.ink`. See `client/README.md` for the file layout.
+The `client/` directory is the standalone static viewer entrypoint that powers `lobsterl.ink`. `client/viewer.js` is the shared viewer logic used by both the extension and hosted client; see `client/README.md` for the file layout.

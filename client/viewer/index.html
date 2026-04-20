@@ -190,6 +190,11 @@
     </div>
   </div>
   <script src="../lib/peerjs.min.js"></script>
+  <script>
+    if (!new URLSearchParams(window.location.search).get('host')) {
+      window.location = '/';
+    }
+  </script>
   <script src="../viewer.js"></script>
 </body>
 </html>

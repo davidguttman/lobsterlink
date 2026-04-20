@@ -64,9 +64,6 @@ if (!debugEnabled) {
 
 if (initialPeerId) {
   overlayInput.value = initialPeerId;
-} else {
-  // Hosted mirror only: without a host param, bounce to the marketing root.
-  window.location = '/';
 }
 
 // --- Connection ---
