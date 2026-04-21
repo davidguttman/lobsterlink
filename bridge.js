@@ -105,19 +105,9 @@ function getSelectedTabId() {
   return raw ? Number(raw) : null;
 }
 
-function buildViewerUrl(peerId) {
-  if (!peerId) return '';
-  return `https://lobsterl.ink/?host=${encodeURIComponent(peerId)}`;
-}
-
-function pickDefaultSelectedTab() {
-  if (!state.tabs.length) return null;
-  if (state.status?.capturedTabId && getTabById(state.status.capturedTabId)) {
-    return state.status.capturedTabId;
-  }
-  const active = state.tabs.find((tab) => tab.active);
-  return active ? active.id : state.tabs[0].id;
-}
+// buildViewerUrl and pickDefaultSelectedTab are provided as globals by
+// lib/bridge-utils.js (loaded before this script in bridge.html).
+// pickDefaultSelectedTab now takes `state` as an explicit argument.
 
 function renderTabSelect() {
   const previous = state.selectedTabId;
@@ -138,7 +128,7 @@ function renderTabSelect() {
   }
 
   if (!getTabById(previous)) {
-    state.selectedTabId = pickDefaultSelectedTab();
+    state.selectedTabId = pickDefaultSelectedTab(state);
     statusEls.hostTabSelect.value = String(state.selectedTabId);
   } else {
     state.selectedTabId = previous;
@@ -352,7 +342,7 @@ async function loadTabs() {
     ));
 
   if (!getTabById(state.selectedTabId)) {
-    state.selectedTabId = pickDefaultSelectedTab();
+    state.selectedTabId = pickDefaultSelectedTab(state);
   }
 }
 
