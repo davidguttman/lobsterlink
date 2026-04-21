@@ -2,6 +2,7 @@ const modeSelect = document.getElementById('mode-select');
 const hostPanel = document.getElementById('host-panel');
 const viewerPanel = document.getElementById('viewer-panel');
 const bridgeButton = document.getElementById('btn-bridge');
+const optionsButton = document.getElementById('btn-options');
 
 function showPanel(panel) {
   modeSelect.style.display = 'none';
@@ -18,6 +19,14 @@ document.getElementById('viewer-back').addEventListener('click', () => showPanel
 bridgeButton.addEventListener('click', async () => {
   const url = chrome.runtime.getURL('bridge.html');
   await chrome.tabs.create({ url });
+  setTimeout(() => window.close(), 150);
+});
+optionsButton.addEventListener('click', () => {
+  if (chrome.runtime.openOptionsPage) {
+    chrome.runtime.openOptionsPage();
+  } else {
+    chrome.tabs.create({ url: chrome.runtime.getURL('options.html') });
+  }
   setTimeout(() => window.close(), 150);
 });
 
@@ -90,8 +99,9 @@ viewerConnect.addEventListener('click', async () => {
   viewerConnect.disabled = true;
   viewerStatus.textContent = 'Opening viewer...';
 
-  // Open public LobsterLink viewer
-  const url = `https://lobsterl.ink/?host=${encodeURIComponent(peerId)}`;
+  // Build viewer URL from configured base + signaling params (defaults to public host)
+  const stored = await chrome.storage.local.get(DEFAULT_SIGNALING_CONFIG);
+  const url = buildViewerUrl(peerId, stored);
   chrome.tabs.create({ url });
 
   // Close popup after short delay

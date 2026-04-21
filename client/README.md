@@ -32,3 +32,17 @@ https://lobsterl.ink/?host=<host-peer-id>
 
 The page connects to the LobsterLink host over WebRTC via PeerJS and renders the shared
 tab with remote input forwarded back.
+
+## Self-hosted signaling
+
+If the LobsterLink extension is configured to use a self-hosted PeerJS server (see the
+main `README.md`), it embeds the signaling details in the viewer URL as query params:
+
+```
+https://vier:9000/?host=<id>&peerJsHost=vier&peerJsPort=9001&peerJsSecure=false
+```
+
+`client/viewer.js` parses these params (`peerJsHost`, `peerJsPort`, `peerJsPath`,
+`peerJsSecure`) via `lib/signaling-config.js` and passes them to the PeerJS client.
+Missing params fall back to the public defaults, so existing `lobsterl.ink/?host=...`
+links keep working unchanged.

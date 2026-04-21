@@ -91,3 +91,28 @@ This repo ships with a skill at `openclaw/lobsterlink-tab-share/SKILL.md`. It op
 ### Public web viewer
 
 The `client/` directory is the standalone static viewer entrypoint that powers `lobsterl.ink`. `client/viewer.js` is the shared viewer logic used by both the extension and hosted client; see `client/README.md` for the file layout.
+
+### Self-hosted signaling and viewer
+
+By default LobsterLink uses the public `0.peerjs.com` signaling server and the public `https://lobsterl.ink/` viewer. Both are configurable per install — the extension's settings live in `chrome.storage.local` and can be edited from the **Signaling Settings** page (right-click the extension icon → "Options", or the Signaling Settings button in the popup).
+
+```
+viewerUrlBase   https://lobsterl.ink/      // e.g. http://vier:9000/
+peerJsHost      0.peerjs.com               // e.g. vier
+peerJsPort      443                        // e.g. 9001
+peerJsPath      /                          // e.g. /peerjs
+peerJsSecure    true                       // false for plain-HTTP signaling
+```
+
+The viewer URL that the extension hands back is generated from these settings, and signaling params that differ from the defaults are embedded as query params so the viewer page connects to the same PeerJS server as the host. The hosted `client/` site parses those same query params, so a link like `http://vier:9000/?host=<id>&peerJsHost=vier&peerJsPort=9001&peerJsSecure=false` connects to a self-hosted PeerJS server over the Tailscale network — both the signaling server and the viewer URL stay inside your VPN.
+
+To stand up your own signaling server and viewer:
+
+```bash
+npm install -g peer
+peerjs --port 9001 --path /
+# serve client/ over http(s) from any static file server on the same network
+python3 -m http.server --directory client 9000
+```
+
+Then open the extension's Signaling Settings, fill in the matching values, and start hosting as usual.

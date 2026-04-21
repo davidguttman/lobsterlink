@@ -41,8 +41,29 @@ const state = {
   backgroundLastError: null,
   bridgeLastError: null,
   refreshInFlight: false,
-  refreshQueued: false
+  refreshQueued: false,
+  signalingConfig: normalizeSignalingConfig({})
 };
+
+chrome.storage.local.get(DEFAULT_SIGNALING_CONFIG, (result) => {
+  state.signalingConfig = normalizeSignalingConfig(result);
+  renderStatus();
+});
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
+  let signalingChanged = false;
+  const next = { ...state.signalingConfig };
+  for (const key of SIGNALING_STORAGE_KEYS) {
+    if (changes[key]) {
+      next[key] = changes[key].newValue;
+      signalingChanged = true;
+    }
+  }
+  if (signalingChanged) {
+    state.signalingConfig = normalizeSignalingConfig(next);
+    renderStatus();
+  }
+});
 
 const REFRESH_INTERVAL_MS = 1500;
 const MAX_BRIDGE_LOGS = 80;
@@ -160,7 +181,7 @@ function renderStatus() {
 
   const requestedViewerPeerId = statusEls.viewerPeerId.value.trim();
   statusEls.viewerUrl.textContent = status.viewerUrl ||
-    (requestedViewerPeerId ? buildViewerUrl(requestedViewerPeerId) : 'No active host viewer URL');
+    (requestedViewerPeerId ? buildViewerUrl(requestedViewerPeerId, state.signalingConfig) : 'No active host viewer URL');
   statusEls.tabContext.textContent = capturedTab
     ? [
         `tabId=${capturedTab.id}`,
@@ -461,7 +482,7 @@ async function openViewerForPeer(peerId) {
     throw new Error('Peer ID is required to open the viewer.');
   }
   await chrome.tabs.create({
-    url: buildViewerUrl(peerId)
+    url: buildViewerUrl(peerId, state.signalingConfig)
   });
   setHostMessage(`Opened viewer for ${peerId}.`, 'ok');
 }
@@ -497,7 +518,7 @@ function bindControls() {
   statusEls.viewerPeerId.addEventListener('input', () => {
     const peerId = statusEls.viewerPeerId.value.trim();
     statusEls.viewerUrl.textContent = peerId
-      ? buildViewerUrl(peerId)
+      ? buildViewerUrl(peerId, state.signalingConfig)
       : (state.status?.viewerUrl || 'No active host viewer URL');
   });
 

@@ -54,6 +54,9 @@ let viewportFollowTimer = null;
 const params = new URLSearchParams(location.search);
 const initialPeerId = params.get('host');
 const debugEnabled = params.get('debug') === 'true';
+const viewerSignalingConfig = (typeof parseSignalingConfigFromParams === 'function')
+  ? parseSignalingConfigFromParams(params)
+  : null;
 
 // Debug-gated logging - silences viewer console output unless ?debug=true
 const log = debugEnabled ? console.log.bind(console) : () => {};
@@ -98,7 +101,10 @@ function connect(hostPeerId) {
     : '';
   setStatus(reconnectAttempts > 0 ? 'Reconnecting...' : 'Connecting...', reconnectAttempts > 0 ? 'reconnecting' : 'connecting');
 
-  peer = new Peer();
+  const peerOptions = (viewerSignalingConfig && typeof peerJsOptionsFromConfig === 'function')
+    ? peerJsOptionsFromConfig(viewerSignalingConfig)
+    : undefined;
+  peer = peerOptions ? new Peer(undefined, peerOptions) : new Peer();
 
   peer.on('open', () => {
     dataConn = peer.connect(hostPeerId, { reliable: true });

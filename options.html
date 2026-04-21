@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>LobsterLink Signaling Settings</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: system-ui, sans-serif;
+      font-size: 14px;
+      color: #e8eefc;
+      background:
+        radial-gradient(circle at top left, rgba(95, 140, 255, 0.14), transparent 34%),
+        radial-gradient(circle at top right, rgba(47, 199, 161, 0.10), transparent 30%),
+        linear-gradient(180deg, #0b1020 0%, #0d1326 100%);
+      min-height: 100vh;
+    }
+    .wrap {
+      max-width: 640px;
+      margin: 0 auto;
+    }
+    h1 {
+      margin: 0 0 4px;
+      font-size: 22px;
+      color: #fff;
+    }
+    p.lead {
+      margin: 0 0 20px;
+      color: #b0bcd8;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .card {
+      background: rgba(21, 33, 64, 0.78);
+      border: 1px solid rgba(95, 140, 255, 0.28);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .field {
+      display: block;
+      margin-bottom: 14px;
+    }
+    .field label {
+      display: block;
+      font-size: 12px;
+      color: #9fb0d6;
+      margin-bottom: 4px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .field input[type="text"],
+    .field input[type="number"] {
+      width: 100%;
+      padding: 8px 10px;
+      background: #0f1730;
+      border: 1px solid #2a3b66;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 14px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .field input:focus {
+      outline: none;
+      border-color: #5c85ff;
+    }
+    .field .hint {
+      margin-top: 4px;
+      font-size: 12px;
+      color: #8292b9;
+    }
+    .row {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .row .field { flex: 1; margin-bottom: 0; }
+    .checkbox-field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .checkbox-field input {
+      width: 16px;
+      height: 16px;
+      accent-color: #5c85ff;
+    }
+    .actions {
+      margin-top: 20px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    button {
+      padding: 10px 18px;
+      border: none;
+      border-radius: 8px;
+      background: linear-gradient(180deg, #6994ff, #4b71dc);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { filter: brightness(1.08); }
+    button.secondary {
+      background: #1a2543;
+      color: #c8d6ff;
+      border: 1px solid #2f3f70;
+    }
+    .status {
+      margin-left: auto;
+      font-size: 13px;
+      color: #8292b9;
+    }
+    .status.ok { color: #5cd6a5; }
+    .status.error { color: #f07878; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>LobsterLink Signaling Settings</h1>
+    <p class="lead">
+      Point the extension at a self-hosted PeerJS signaling server and a custom viewer URL
+      (for example, one served from your Tailscale network). Leave the defaults to use the
+      public LobsterLink infrastructure. Changes take effect the next time you start hosting.
+    </p>
+
+    <div class="card">
+      <div class="field">
+        <label for="viewerUrlBase">Viewer URL base</label>
+        <input type="text" id="viewerUrlBase" spellcheck="false" autocomplete="off" />
+        <div class="hint">Base URL where the viewer page is served, e.g. <code>https://lobsterl.ink/</code> or <code>http://vier:9000/</code>. Must be http(s).</div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="peerJsHost">PeerJS host</label>
+          <input type="text" id="peerJsHost" spellcheck="false" autocomplete="off" />
+        </div>
+        <div class="field" style="flex: 0 0 120px;">
+          <label for="peerJsPort">Port</label>
+          <input type="number" id="peerJsPort" min="1" max="65535" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="peerJsPath">PeerJS path</label>
+        <input type="text" id="peerJsPath" spellcheck="false" autocomplete="off" />
+      </div>
+
+      <div class="checkbox-field">
+        <input type="checkbox" id="peerJsSecure" />
+        <label for="peerJsSecure" style="margin: 0; text-transform: none; letter-spacing: 0; color: #e8eefc; font-size: 14px;">
+          Use TLS (<code>secure: true</code> — required for HTTPS viewer URLs)
+        </label>
+      </div>
+
+      <div class="actions">
+        <button id="save">Save</button>
+        <button id="reset" class="secondary" type="button">Reset to defaults</button>
+        <span id="status" class="status"></span>
+      </div>
+    </div>
+  </div>
+
+  <script src="lib/signaling-config.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

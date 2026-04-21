@@ -24,6 +24,7 @@ let lastFrameData = null; // stores last base64 JPEG for redraw on viewer connec
 let frameTickerInterval = null;
 let frameTickerFlip = false;
 let screencastViewport = { width: 1920, height: 1080 };
+let activeSignalingConfig = null;
 
 const INPUT_TYPES = new Set(['mouse', 'key', 'clipboard']);
 
@@ -64,7 +65,7 @@ async function tuneCurrentVideoSender() {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'offscreen:startHostScreencast') {
-    startHostScreencast(msg.width, msg.height, msg.viewportWidth, msg.viewportHeight);
+    startHostScreencast(msg.width, msg.height, msg.viewportWidth, msg.viewportHeight, msg.signalingConfig);
     sendResponse({ ok: true });
     return false;
   }
@@ -106,7 +107,9 @@ function sendToViewer(message) {
 // --- PeerJS setup ---
 
 function setupPeer() {
-  peer = new Peer();
+  const peerOptions = peerJsOptionsFromConfig(activeSignalingConfig);
+  log('[LOBSTERLINK:offscreen] Peer options:', peerOptions.host, peerOptions.port, peerOptions.path, peerOptions.secure);
+  peer = new Peer(undefined, peerOptions);
 
   peer.on('open', (id) => {
     log('[LOBSTERLINK:offscreen] Peer ready, id:', id);
@@ -211,7 +214,8 @@ function sendViewportInfo() {
 
 // --- Screencast canvas mode ---
 
-function startHostScreencast(width, height, viewportWidth = width, viewportHeight = height) {
+function startHostScreencast(width, height, viewportWidth = width, viewportHeight = height, incomingSignalingConfig = null) {
+  activeSignalingConfig = incomingSignalingConfig || null;
   screencastViewport.width = viewportWidth || width;
   screencastViewport.height = viewportHeight || height;
   log('[LOBSTERLINK:offscreen] Starting host (screencast), canvas:', width, 'x', height,
