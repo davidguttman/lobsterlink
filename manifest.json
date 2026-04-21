@@ -1,10 +1,9 @@
 {
   "manifest_version": 3,
   "name": "LobsterLink",
-  "version": "4.17.0.2",
+  "version": "4.20.0.1",
   "description": "Remote browser tab viewing and control via WebRTC",
   "permissions": [
-    "tabCapture",
     "tabs",
     "debugger",
     "activeTab",

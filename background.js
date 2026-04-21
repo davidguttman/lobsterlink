@@ -1,7 +1,5 @@
-// LobsterLink service worker — orchestrates host mode
-// Supports two capture modes:
-//   'tabCapture' — chrome.tabCapture (requires user gesture from popup)
-//   'screencast' — CDP Page.startScreencast (works programmatically)
+// LobsterLink service worker — orchestrates host mode.
+// Hosting uses CDP Page.startScreencast exclusively.
 
 const SCREENCAST_MAX_WIDTH = 3840;
 const SCREENCAST_MAX_HEIGHT = 2160;
@@ -15,7 +13,7 @@ const DEFAULT_HOST_STATE = {
   capturedTabId: null,
   debuggerAttached: false,
   viewerConnected: false,
-  captureMode: null, // 'tabCapture' | 'screencast'
+  captureMode: null, // 'screencast' when hosting
   screencastWidth: null,
   screencastHeight: null,
   pageAgentReady: false,
@@ -312,16 +310,7 @@ async function sendPageAgentInput(tabId, evt, attempt = 0) {
 // --- Message handling ---
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.action === 'startHosting') {
-    ensureHostStateLoaded().then(() => handleStartHosting()).then(sendResponse);
-    return true;
-  }
-  if (msg.action === 'startHostingWithStreamId') {
-    ensureHostStateLoaded().then(() => handleStartHostingWithStreamId(msg.tabId, msg.streamId)).then(sendResponse);
-    return true;
-  }
   if (msg.action === 'startHostingCDP') {
-    // Explicit CDP screencast mode (for programmatic/agent use)
     ensureHostStateLoaded().then(() => handleStartHostingCDP(msg.tabId)).then(sendResponse);
     return true;
   }
@@ -404,13 +393,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     ensureHostStateLoaded().then(async () => {
       hostState.viewerConnected = true;
       await persistHostState();
-      log('[LOBSTERLINK:bg] Viewer connected, mode:', hostState.captureMode);
+      log('[LOBSTERLINK:bg] Viewer connected');
       logDiagnostic('viewer_connected', { mode: hostState.captureMode });
-      // In screencast mode, debugger is already attached (needed for screencast).
-      // In tabCapture mode, ensure the page agent is ready for DOM-driven control.
-      if (hostState.captureMode === 'tabCapture') {
-        await ensurePageAgent(hostState.capturedTabId);
-      } else if (hostState.captureMode === 'screencast' && hostState.debuggerAttached) {
+      if (hostState.debuggerAttached) {
         // Restart screencast to force CDP to emit fresh frames.
         // CDP only sends frames on visual changes, so on a static page
         // frames may have arrived before the viewer connected.
@@ -578,94 +563,6 @@ async function resetTabZoom(tabId) {
   }
 }
 
-// --- Host lifecycle: tabCapture mode ---
-
-async function startTabCaptureMode(tabId, streamId) {
-  hostState.capturedTabId = tabId;
-  resetPageAgentState();
-
-  await ensureWindowVisible(tabId);
-  await resetTabZoom(tabId);
-  await ensureOffscreenDocument();
-  await chrome.runtime.sendMessage({
-    action: 'offscreen:startHost',
-    streamId,
-    tabId
-  });
-
-  const peerId = await waitForPeerId();
-  hostState.hosting = true;
-  hostState.peerId = peerId;
-  hostState.captureMode = 'tabCapture';
-  hostState.screencastWidth = null;
-  hostState.screencastHeight = null;
-  setupTabListeners();
-  await persistHostState();
-  await ensurePageAgent(tabId);
-  await sendHostOverlay(tabId, peerId);
-  await activateTabWindow(tabId);
-
-  log('[LOBSTERLINK:bg] Host started (tabCapture), peerId:', peerId);
-  return { peerId, captureMode: 'tabCapture' };
-}
-
-async function handleStartHosting() {
-  try {
-    const tab = await findCapturableTab();
-    if (!tab) {
-      logDiagnostic('start_host_blocked', {
-        error: 'No capturable tab found (switch to a normal web tab and retry)'
-      });
-      return { error: 'No capturable tab found (switch to a normal web tab and retry)' };
-    }
-
-    log('[LOBSTERLINK:bg] Starting host on tab', tab.id, tab.url);
-    hostState.capturedTabId = tab.id;
-    await ensureWindowVisible(tab.id);
-
-    // Try tabCapture first (requires user gesture)
-    try {
-      const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
-      return await startTabCaptureMode(tab.id, streamId);
-    } catch (tabCaptureErr) {
-      warn('[LOBSTERLINK:bg] tabCapture failed, falling back to CDP screencast:', tabCaptureErr.message);
-      return await startScreencastMode(tab.id);
-    }
-  } catch (err) {
-    error('[LOBSTERLINK:bg] startHosting error:', err);
-    logDiagnostic('start_host_error', { error: err.message || String(err) });
-    return { error: err.message };
-  }
-}
-
-async function handleStartHostingWithStreamId(tabId, streamId) {
-  try {
-    if (!tabId || !streamId) {
-      logDiagnostic('start_host_missing_stream', {
-        error: 'Missing tabCapture stream ID',
-        tabId: tabId || null
-      });
-      return { error: 'Missing tabCapture stream ID' };
-    }
-
-    const tab = await chrome.tabs.get(tabId);
-    if (isForbiddenTab(tab)) {
-      logDiagnostic('start_host_forbidden_tab', {
-        error: 'Cannot capture extension/chrome pages (switch to a normal web tab)',
-        tabId
-      });
-      return { error: 'Cannot capture extension/chrome pages (switch to a normal web tab)' };
-    }
-
-    log('[LOBSTERLINK:bg] Starting host (popup tabCapture) on tab', tabId);
-    return await startTabCaptureMode(tabId, streamId);
-  } catch (err) {
-    error('[LOBSTERLINK:bg] startHostingWithStreamId error:', err);
-    logDiagnostic('start_host_stream_error', { error: err.message || String(err), tabId });
-    return { error: err.message };
-  }
-}
-
 // --- Host lifecycle: CDP screencast mode ---
 
 async function handleStartHostingCDP(tabId) {
@@ -690,7 +587,7 @@ async function handleStartHostingCDP(tabId) {
         return { error: 'Cannot capture extension/chrome pages (switch to a normal web tab)' };
       }
     }
-    log('[LOBSTERLINK:bg] Starting host (explicit CDP mode) on tab', tabId);
+    log('[LOBSTERLINK:bg] Starting host (CDP screencast) on tab', tabId);
     return await startScreencastMode(tabId);
   } catch (err) {
     error('[LOBSTERLINK:bg] startHostingCDP error:', err);
@@ -774,7 +671,7 @@ async function stopScreencast() {
   }
 }
 
-// --- Stop hosting (both modes) ---
+// --- Stop hosting ---
 
 async function handleStopHosting() {
   teardownTabListeners();
@@ -783,16 +680,14 @@ async function handleStopHosting() {
     await sendHostOverlay(hostState.capturedTabId, null);
   }
 
-  if (hostState.captureMode === 'screencast') {
-    await stopScreencast();
-    // Restore original viewport
-    if (hostState.capturedTabId && hostState.debuggerAttached) {
-      try {
-        await chrome.debugger.sendCommand(
-          { tabId: hostState.capturedTabId }, 'Emulation.clearDeviceMetricsOverride'
-        );
-      } catch (e) { /* tab may be gone */ }
-    }
+  await stopScreencast();
+  // Restore original viewport
+  if (hostState.capturedTabId && hostState.debuggerAttached) {
+    try {
+      await chrome.debugger.sendCommand(
+        { tabId: hostState.capturedTabId }, 'Emulation.clearDeviceMetricsOverride'
+      );
+    } catch (e) { /* tab may be gone */ }
   }
 
   try {
@@ -1049,9 +944,7 @@ function onTabRemoved(tabId) {
     wasCaptured: tabId === hostState.capturedTabId
   });
   if (tabId === hostState.capturedTabId) {
-    if (hostState.captureMode === 'screencast') {
-      stopScreencast();
-    }
+    stopScreencast();
     hostState.capturedTabId = null;
     hostState.debuggerAttached = false;
     resetPageAgentState();
@@ -1183,7 +1076,6 @@ async function handleControlEvent(evt) {
 
 async function setHostViewport(width, height) {
   if (!hostState.capturedTabId || !hostState.debuggerAttached) return;
-  if (hostState.captureMode !== 'screencast') return;
 
   const tabId = hostState.capturedTabId;
   log('[LOBSTERLINK:bg] Setting host viewport to', width, 'x', height);
@@ -1268,56 +1160,38 @@ async function switchTab(tabId) {
     return;
   }
 
-  if (hostState.captureMode === 'screencast') {
-    // Stop screencast on old tab
-    await stopScreencast();
-    await detachDebugger(hostState.capturedTabId);
-    resetPageAgentState();
+  // Stop screencast on old tab
+  await stopScreencast();
+  await detachDebugger(hostState.capturedTabId);
+  resetPageAgentState();
 
-    // Activate and capture new tab
-    await activateTabWindow(tabId);
-    await resetTabZoom(tabId);
-    hostState.capturedTabId = tabId;
+  // Activate and capture new tab
+  await activateTabWindow(tabId);
+  await resetTabZoom(tabId);
+  hostState.capturedTabId = tabId;
 
-    await attachDebugger(tabId);
+  await attachDebugger(tabId);
 
-    // Get new page dimensions
-    const { width, height } = await getCurrentViewport(tabId);
-    const devicePixelRatio = await getPageDevicePixelRatio(tabId);
-    const capture = getCaptureSize(width, height, devicePixelRatio);
-    hostState.screencastWidth = width;
-    hostState.screencastHeight = height;
-    hostState.pageDevicePixelRatio = devicePixelRatio;
+  // Get new page dimensions
+  const { width, height } = await getCurrentViewport(tabId);
+  const devicePixelRatio = await getPageDevicePixelRatio(tabId);
+  const capture = getCaptureSize(width, height, devicePixelRatio);
+  hostState.screencastWidth = width;
+  hostState.screencastHeight = height;
+  hostState.pageDevicePixelRatio = devicePixelRatio;
 
-    // Resize canvas in offscreen doc
-    await chrome.runtime.sendMessage({
-      action: 'offscreen:screencastResize',
-      width: capture.width,
-      height: capture.height,
-      viewportWidth: width,
-      viewportHeight: height
-    });
+  // Resize canvas in offscreen doc
+  await chrome.runtime.sendMessage({
+    action: 'offscreen:screencastResize',
+    width: capture.width,
+    height: capture.height,
+    viewportWidth: width,
+    viewportHeight: height
+  });
 
-    // Restart screencast on new tab
-    await restartScreencast(tabId, capture.width, capture.height);
-    await ensurePageAgent(tabId);
-  } else {
-    // tabCapture mode
-    resetPageAgentState();
-    await activateTabWindow(tabId);
-    await ensureWindowVisible(tabId);
-    await resetTabZoom(tabId);
-
-    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
-    hostState.capturedTabId = tabId;
-
-    await chrome.runtime.sendMessage({
-      action: 'offscreen:switchStream',
-      streamId,
-      tabId
-    });
-    await ensurePageAgent(tabId);
-  }
+  // Restart screencast on new tab
+  await restartScreencast(tabId, capture.width, capture.height);
+  await ensurePageAgent(tabId);
 
   const tab = await chrome.tabs.get(tabId);
   await persistHostState();
@@ -1462,22 +1336,19 @@ async function retryAttachDebugger(maxRetries, delayMs) {
       if (tab) {
         const attached = await attachDebugger(tab.id);
         if (hostState.debuggerAttached) {
-          // If in screencast mode, restart the screencast
-          if (hostState.captureMode === 'screencast') {
-            const { width, height } = await getCurrentViewport(tab.id);
-            const devicePixelRatio = hostState.pageDevicePixelRatio || await getPageDevicePixelRatio(tab.id);
-            const capture = getCaptureSize(width, height, devicePixelRatio);
-            hostState.screencastWidth = width;
-            hostState.screencastHeight = height;
-            hostState.pageDevicePixelRatio = devicePixelRatio;
-            await chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.enable');
-            await chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.startScreencast', {
-              format: 'jpeg',
-              quality: SCREENCAST_JPEG_QUALITY,
-              maxWidth: capture.width,
-              maxHeight: capture.height
-            });
-          }
+          const { width, height } = await getCurrentViewport(tab.id);
+          const devicePixelRatio = hostState.pageDevicePixelRatio || await getPageDevicePixelRatio(tab.id);
+          const capture = getCaptureSize(width, height, devicePixelRatio);
+          hostState.screencastWidth = width;
+          hostState.screencastHeight = height;
+          hostState.pageDevicePixelRatio = devicePixelRatio;
+          await chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.enable');
+          await chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.startScreencast', {
+            format: 'jpeg',
+            quality: SCREENCAST_JPEG_QUALITY,
+            maxWidth: capture.width,
+            maxHeight: capture.height
+          });
           log('[LOBSTERLINK:bg] Reattach succeeded on attempt', i + 1);
           logDiagnostic('debugger_reattach_success', { attempt: i + 1, tabId: tab.id });
           break;
@@ -1781,7 +1652,7 @@ async function handleInputEvent(evt) {
   }
 
   // Routing policy (raw-input primary):
-  //   screencast + debugger  → raw CDP Input.dispatch{Mouse,Key}Event for mouse/key.
+  //   debugger attached      → raw CDP Input.dispatch{Mouse,Key}Event for mouse/key.
   //                            This is browser-level input and is the only path that
   //                            reliably reaches cross-origin iframes (reCAPTCHA,
   //                            LinkedIn challenge frames, payment iframes, etc.).
@@ -1789,14 +1660,11 @@ async function handleInputEvent(evt) {
   //                            cannot cross those boundaries and silently no-ops.
   //   clipboard              → page-agent (DOM access for selection text / text
   //                            insertion into editables; no CDP equivalent here).
-  //   tabCapture or no CDP   → page-agent is the only option; fall through to it.
-  const canUseCdp = hostState.captureMode === 'screencast' && hostState.debuggerAttached;
-
-  if (canUseCdp && evt.type === 'mouse') {
+  if (hostState.debuggerAttached && evt.type === 'mouse') {
     dispatchMouseEvent(tabId, evt);
     return;
   }
-  if (canUseCdp && evt.type === 'key') {
+  if (hostState.debuggerAttached && evt.type === 'key') {
     dispatchKeyEvent(tabId, evt);
     return;
   }
@@ -1815,22 +1683,8 @@ async function handleInputEvent(evt) {
     return;
   }
 
-  if (hostState.captureMode === 'tabCapture') {
-    try {
-      await routeInputToPageAgent(tabId, evt);
-    } catch (err) {
-      logDiagnostic('page_agent_route_failure', {
-        tabId,
-        type: evt.type,
-        action: evt.action,
-        error: err.message || String(err)
-      });
-    }
-    return;
-  }
-
-  // Screencast mode but debugger is detached — drop event and kick off recovery
-  // rather than silently falling back to synthetic DOM events.
+  // Debugger is detached — drop event and kick off recovery rather than
+  // silently falling back to synthetic DOM events.
   if (!reattachInProgress) {
     warn('[LOBSTERLINK:bg] Input dropped: debugger not attached, triggering reattach');
     logDiagnostic('input_dropped_debugger_missing', {
@@ -1966,5 +1820,4 @@ function dispatchKeyEvent(tabId, evt) {
 }
 
 // Expose for programmatic CDP triggering
-self.handleStartHosting = handleStartHosting;
 self.handleStartHostingCDP = handleStartHostingCDP;

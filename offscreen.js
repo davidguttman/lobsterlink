@@ -1,7 +1,5 @@
-// Offscreen document — holds PeerJS peer + MediaStream for host mode
-// Supports two modes:
-//   tabCapture — MediaStream from chrome.tabCapture via getUserMedia
-//   screencast — MediaStream from a canvas fed by CDP screencast JPEG frames
+// Offscreen document — holds PeerJS peer + MediaStream for host mode.
+// MediaStream is sourced from a canvas fed by CDP screencast JPEG frames.
 
 let peer = null;
 let mediaStream = null;
@@ -25,7 +23,6 @@ let screencastCtx = null;
 let lastFrameData = null; // stores last base64 JPEG for redraw on viewer connect
 let frameTickerInterval = null;
 let frameTickerFlip = false;
-let hostMode = null; // 'tabCapture' | 'screencast'
 let screencastViewport = { width: 1920, height: 1080 };
 
 const INPUT_TYPES = new Set(['mouse', 'key', 'clipboard']);
@@ -66,14 +63,7 @@ async function tuneCurrentVideoSender() {
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.action === 'offscreen:startHost') {
-    hostMode = 'tabCapture';
-    startHostTabCapture(msg.streamId, msg.tabId);
-    sendResponse({ ok: true });
-    return false;
-  }
   if (msg.action === 'offscreen:startHostScreencast') {
-    hostMode = 'screencast';
     startHostScreencast(msg.width, msg.height, msg.viewportWidth, msg.viewportHeight);
     sendResponse({ ok: true });
     return false;
@@ -98,11 +88,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true });
     return false;
   }
-  if (msg.action === 'offscreen:switchStream') {
-    switchStream(msg.streamId, msg.tabId);
-    sendResponse({ ok: true });
-    return false;
-  }
   return false;
 });
 
@@ -118,7 +103,7 @@ function sendToViewer(message) {
   }
 }
 
-// --- Shared PeerJS setup (used by both modes) ---
+// --- PeerJS setup ---
 
 function setupPeer() {
   peer = new Peer();
@@ -138,20 +123,18 @@ function setupPeer() {
       tuneCurrentVideoSender().catch(() => {});
     }, 0);
 
-    // In screencast mode, redraw the last frame and start a ticker
-    // to force continuous canvas invalidation so captureStream(15)
-    // emits encoded keyframes even on static pages
-    if (hostMode === 'screencast') {
-      if (lastFrameData && screencastCtx) {
-        log('[LOBSTERLINK:offscreen] Redrawing last stored frame for new viewer');
-        const img = new Image();
-        img.onload = () => {
-          screencastCtx.drawImage(img, 0, 0, screencastCanvas.width, screencastCanvas.height);
-        };
-        img.src = 'data:image/jpeg;base64,' + lastFrameData;
-      }
-      startFrameTicker();
+    // Redraw the last frame and start a ticker to force continuous canvas
+    // invalidation so captureStream(15) emits encoded keyframes even on
+    // static pages.
+    if (lastFrameData && screencastCtx) {
+      log('[LOBSTERLINK:offscreen] Redrawing last stored frame for new viewer');
+      const img = new Image();
+      img.onload = () => {
+        screencastCtx.drawImage(img, 0, 0, screencastCanvas.width, screencastCanvas.height);
+      };
+      img.src = 'data:image/jpeg;base64,' + lastFrameData;
     }
+    startFrameTicker();
 
     call.on('close', () => {
       log('[LOBSTERLINK:offscreen] Media call closed');
@@ -170,7 +153,7 @@ function setupPeer() {
 
     conn.on('open', () => {
       log('[LOBSTERLINK:offscreen] Data channel open, notifying background');
-      sendToViewer({ type: 'hostMode', mode: hostMode });
+      sendToViewer({ type: 'hostMode', mode: 'screencast' });
       sendViewportInfo();
       // Notify background AFTER channel is open so sendToViewer works immediately
       chrome.runtime.sendMessage({ action: 'viewerConnected' });
@@ -215,80 +198,15 @@ function setupPeer() {
 }
 
 function sendViewportInfo() {
-  if (hostMode === 'tabCapture') {
-    const track = mediaStream ? mediaStream.getVideoTracks()[0] : null;
-    if (track) {
-      const settings = track.getSettings();
-      log('[LOBSTERLINK:offscreen] Sending viewport:', settings.width, 'x', settings.height);
-      sendToViewer({ type: 'viewport', width: settings.width, height: settings.height });
-    }
-  } else if (hostMode === 'screencast' && screencastCanvas) {
-    log('[LOBSTERLINK:offscreen] Sending viewport:',
-      screencastViewport.width, 'x', screencastViewport.height,
-      '| canvas:', screencastCanvas.width, 'x', screencastCanvas.height);
-    sendToViewer({
-      type: 'viewport',
-      width: screencastViewport.width,
-      height: screencastViewport.height
-    });
-  }
-}
-
-// --- tabCapture mode ---
-
-async function startHostTabCapture(streamId, tabId) {
-  try {
-    log('[LOBSTERLINK:offscreen] Starting host (tabCapture), streamId:', streamId);
-
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: {
-        mandatory: {
-          chromeMediaSource: 'tab',
-          chromeMediaSourceId: streamId
-        }
-      }
-    });
-
-    configureOutgoingTrack(mediaStream.getVideoTracks()[0]);
-    log('[LOBSTERLINK:offscreen] Got MediaStream, tracks:', mediaStream.getTracks().length);
-    setupPeer();
-  } catch (err) {
-    error('[LOBSTERLINK:offscreen] Failed to start host (tabCapture):', err);
-  }
-}
-
-async function switchStream(streamId, tabId) {
-  log('[LOBSTERLINK:offscreen] Switching stream, tabId:', tabId);
-
-  const newStream = await navigator.mediaDevices.getUserMedia({
-    audio: false,
-    video: {
-      mandatory: {
-        chromeMediaSource: 'tab',
-        chromeMediaSourceId: streamId
-      }
-    }
+  if (!screencastCanvas) return;
+  log('[LOBSTERLINK:offscreen] Sending viewport:',
+    screencastViewport.width, 'x', screencastViewport.height,
+    '| canvas:', screencastCanvas.width, 'x', screencastCanvas.height);
+  sendToViewer({
+    type: 'viewport',
+    width: screencastViewport.width,
+    height: screencastViewport.height
   });
-
-  if (mediaStream) {
-    mediaStream.getTracks().forEach(t => t.stop());
-  }
-  mediaStream = newStream;
-
-  if (currentCall && currentCall.peerConnection) {
-    const newTrack = newStream.getVideoTracks()[0];
-    configureOutgoingTrack(newTrack);
-    const senders = currentCall.peerConnection.getSenders();
-    const videoSender = senders.find(s => s.track && s.track.kind === 'video');
-    if (videoSender) {
-      await videoSender.replaceTrack(newTrack);
-      await tuneCurrentVideoSender();
-      log('[LOBSTERLINK:offscreen] Replaced video track on RTC connection');
-    }
-  }
-
-  sendViewportInfo();
 }
 
 // --- Screencast canvas mode ---
@@ -400,7 +318,7 @@ function stopFrameTicker() {
 
 function stopHost() {
   stopFrameTicker();
-  log('[LOBSTERLINK:offscreen] Stopping host, mode:', hostMode);
+  log('[LOBSTERLINK:offscreen] Stopping host');
   if (dataConnection) {
     dataConnection.close();
     dataConnection = null;
@@ -421,5 +339,4 @@ function stopHost() {
   screencastCtx = null;
   screencastViewport = { width: 1920, height: 1080 };
   lastFrameData = null;
-  hostMode = null;
 }

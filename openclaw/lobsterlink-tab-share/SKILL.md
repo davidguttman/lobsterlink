@@ -27,7 +27,6 @@ If LobsterLink is not installed yet, follow the install instructions in this rep
 - Use the isolated `openclaw` browser profile, not the human `user` profile, unless explicitly asked otherwise.
 - When using the OpenClaw `browser` tool for this workflow, target the isolated profile explicitly: `profile="openclaw"` (normally with `target="host"`). Do not use `profile="user"` for LobsterLink hosting or inspection unless the human explicitly asks for the human browser.
 - Prefer the bridge path, not the popup click path.
-- Do not rely on popup `tabCapture` for agent automation. Chrome user gesture rules make that unreliable.
 - Verify bridge state before claiming success.
 - After hosting starts, the hosted tab MUST be the active tab in its window. This is required, not optional — CDP screencast stalls when the hosted tab is backgrounded and the viewer goes black. `Start Host` auto-focuses the hosted tab; keep it frontmost and re-focus with **Show Hosted Tab** if it drops.
 - The bridge page is the source of truth for the peer ID and viewer URL. Read them from the bridge's `Current Peer ID` and `Viewer URL` fields, not from any overlay on the hosted tab. Host state is persisted by the extension, so if `Start Host` leaves the bridge in the background you can reopen `BRIDGE_URL` — the fields will still show the current session.

@@ -40,23 +40,18 @@ hostStart.addEventListener('click', async () => {
   hostStatus.textContent = 'Starting...';
   hostStatus.className = 'status';
 
-  let response;
-  try {
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (activeTab && !isForbiddenTab(activeTab)) {
-      const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: activeTab.id });
-      response = await chrome.runtime.sendMessage({
-        action: 'startHostingWithStreamId',
-        streamId,
-        tabId: activeTab.id
-      });
-    } else {
-      response = await chrome.runtime.sendMessage({ action: 'startHosting' });
-    }
-  } catch (err) {
-    console.warn('[LOBSTERLINK:popup] Direct tabCapture start failed, falling back:', err);
-    response = await chrome.runtime.sendMessage({ action: 'startHosting' });
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!activeTab || isForbiddenTab(activeTab)) {
+    hostStatus.textContent = 'Switch to a normal web tab and retry';
+    hostStatus.className = 'status error';
+    hostStart.disabled = false;
+    return;
   }
+
+  const response = await chrome.runtime.sendMessage({
+    action: 'startHostingCDP',
+    tabId: activeTab.id
+  });
 
   if (response.error) {
     hostStatus.textContent = response.error;
@@ -69,8 +64,7 @@ hostStart.addEventListener('click', async () => {
   hostPeerId.style.display = 'block';
   hostStart.style.display = 'none';
   hostStop.style.display = 'inline-block';
-  const modeLabel = response.captureMode === 'screencast' ? ' (CDP screencast)' : '';
-  hostStatus.textContent = 'Hosting' + modeLabel + ' — share the peer ID with the viewer';
+  hostStatus.textContent = 'Hosting — share the peer ID with the viewer';
   hostStatus.className = 'status ok';
 });
 
