@@ -1,6 +1,7 @@
 // LobsterLink service worker — orchestrates host mode.
 // Hosting uses CDP Page.startScreencast exclusively.
 
+importScripts('lib/signaling-config.js');
 importScripts('lib/background-utils.js');
 
 const SCREENCAST_JPEG_QUALITY = 92;
@@ -44,14 +45,31 @@ let tabListenersInstalled = false;
 let recentDiagnostics = [];
 let lastDiagnosticError = null;
 let remoteLoggingEnabled = false;
+let signalingConfig = normalizeSignalingConfig({});
 
-// Load opt-in remote logging flag from storage (default: off)
-chrome.storage.local.get({ lobsterlinkDebugLoggingEnabled: false }, (result) => {
-  remoteLoggingEnabled = !!result.lobsterlinkDebugLoggingEnabled;
-});
+// Load opt-in remote logging flag + signaling config from storage
+chrome.storage.local.get(
+  { lobsterlinkDebugLoggingEnabled: false, ...DEFAULT_SIGNALING_CONFIG },
+  (result) => {
+    remoteLoggingEnabled = !!result.lobsterlinkDebugLoggingEnabled;
+    signalingConfig = normalizeSignalingConfig(result);
+  }
+);
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.lobsterlinkDebugLoggingEnabled) {
+  if (area !== 'local') return;
+  if (changes.lobsterlinkDebugLoggingEnabled) {
     remoteLoggingEnabled = !!changes.lobsterlinkDebugLoggingEnabled.newValue;
+  }
+  let signalingChanged = false;
+  const next = { ...signalingConfig };
+  for (const key of SIGNALING_STORAGE_KEYS) {
+    if (changes[key]) {
+      next[key] = changes[key].newValue;
+      signalingChanged = true;
+    }
+  }
+  if (signalingChanged) {
+    signalingConfig = normalizeSignalingConfig(next);
   }
 });
 
@@ -161,7 +179,7 @@ function logDiagnostic(event, details = {}) {
 
 function getViewerUrl(peerId) {
   if (!peerId) return null;
-  return `https://lobsterl.ink/?host=${encodeURIComponent(peerId)}`;
+  return buildViewerUrl(peerId, signalingConfig);
 }
 
 function getStatusPayload() {
@@ -630,7 +648,8 @@ async function startScreencastMode(tabId) {
     width: capture.width,
     height: capture.height,
     viewportWidth: width,
-    viewportHeight: height
+    viewportHeight: height,
+    signalingConfig
   });
 
   // Enable Page domain events (required for screencastFrame events to fire)

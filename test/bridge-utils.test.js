@@ -13,8 +13,10 @@ describe('buildViewerUrl', () => {
   });
 
   it('percent-encodes peer ids that contain reserved characters', () => {
+    // URLSearchParams serializes spaces as `+` and reserved chars as %-escapes.
+    // PeerJS sees the same decoded string either way.
     expect(buildViewerUrl('peer id/with+chars&more=')).toBe(
-      'https://lobsterl.ink/?host=peer%20id%2Fwith%2Bchars%26more%3D'
+      'https://lobsterl.ink/?host=peer+id%2Fwith%2Bchars%26more%3D'
     );
   });
 });
