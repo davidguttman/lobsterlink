@@ -1,8 +1,8 @@
 // LobsterLink service worker — orchestrates host mode.
 // Hosting uses CDP Page.startScreencast exclusively.
 
-const SCREENCAST_MAX_WIDTH = 3840;
-const SCREENCAST_MAX_HEIGHT = 2160;
+importScripts('lib/background-utils.js');
+
 const SCREENCAST_JPEG_QUALITY = 92;
 const DIAGNOSTIC_LOG_URL = 'http://127.0.0.1:8787/log';
 const HOST_STATE_STORAGE_KEY = 'lobsterlinkHostState';
@@ -792,29 +792,7 @@ async function sendHostMetricsToViewer() {
   }
 }
 
-function getCaptureSize(width, height, devicePixelRatio = 1) {
-  if (!width || !height) {
-    return {
-      width: SCREENCAST_MAX_WIDTH,
-      height: SCREENCAST_MAX_HEIGHT
-    };
-  }
-
-  const scaleFactor = Math.max(1, Number(devicePixelRatio) || 1);
-  const targetWidth = Math.max(1, Math.round(width * scaleFactor));
-  const targetHeight = Math.max(1, Math.round(height * scaleFactor));
-
-  const scale = Math.min(
-    1,
-    SCREENCAST_MAX_WIDTH / targetWidth,
-    SCREENCAST_MAX_HEIGHT / targetHeight
-  );
-
-  return {
-    width: Math.max(1, Math.round(targetWidth * scale)),
-    height: Math.max(1, Math.round(targetHeight * scale))
-  };
-}
+// getCaptureSize is provided by lib/background-utils.js (importScripts'd above).
 
 async function getCurrentViewport(tabId) {
   const layoutMetrics = await chrome.debugger.sendCommand(
