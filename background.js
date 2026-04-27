@@ -1,7 +1,7 @@
 // LobsterLink service worker — orchestrates host mode.
 // Hosting uses CDP Page.startScreencast exclusively.
 
-importScripts('lib/background-utils.js');
+importScripts('lib/background-utils.js', 'lib/bridge-utils.js');
 
 const SCREENCAST_JPEG_QUALITY = 92;
 const DIAGNOSTIC_LOG_URL = 'http://127.0.0.1:8787/log';
@@ -160,8 +160,7 @@ function logDiagnostic(event, details = {}) {
 }
 
 function getViewerUrl(peerId) {
-  if (!peerId) return null;
-  return `https://lobsterl.ink/?host=${encodeURIComponent(peerId)}`;
+  return buildViewerUrl(peerId) || null;
 }
 
 function getStatusPayload() {

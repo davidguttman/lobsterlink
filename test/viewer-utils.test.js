@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { diffMobileKeyboardText } from '../lib/viewer-utils.js';
+import { diffMobileKeyboardText, parseViewerArgs } from '../lib/viewer-utils.js';
 
 describe('diffMobileKeyboardText', () => {
   it('returns empty strings when nothing changed', () => {
@@ -57,6 +57,36 @@ describe('diffMobileKeyboardText', () => {
     expect(diffMobileKeyboardText('aaaa', 'aXaa')).toEqual({
       removedText: 'a',
       insertedText: 'X'
+    });
+  });
+});
+
+describe('parseViewerArgs', () => {
+  it('reads host and debug args from the hash', () => {
+    expect(parseViewerArgs('', '#host=abc123&debug=true')).toEqual({
+      hostPeerId: 'abc123',
+      debugEnabled: true
+    });
+  });
+
+  it('prefers hash args over backward-compatible query args', () => {
+    expect(parseViewerArgs('?host=query-host&debug=false', '#host=hash-host&debug=true')).toEqual({
+      hostPeerId: 'hash-host',
+      debugEnabled: true
+    });
+  });
+
+  it('falls back to query args for old viewer links', () => {
+    expect(parseViewerArgs('?host=legacy-host&debug=true', '')).toEqual({
+      hostPeerId: 'legacy-host',
+      debugEnabled: true
+    });
+  });
+
+  it('accepts hash args that start with a question mark', () => {
+    expect(parseViewerArgs('', '#?host=hash-query-host')).toEqual({
+      hostPeerId: 'hash-query-host',
+      debugEnabled: false
     });
   });
 });

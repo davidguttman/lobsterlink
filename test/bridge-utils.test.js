@@ -8,13 +8,13 @@ describe('buildViewerUrl', () => {
     expect(buildViewerUrl(undefined)).toBe('');
   });
 
-  it('builds a viewer URL with the peer id as the host query param', () => {
-    expect(buildViewerUrl('abc123')).toBe('https://lobsterl.ink/?host=abc123');
+  it('builds a viewer URL with the peer id as the host hash param', () => {
+    expect(buildViewerUrl('abc123')).toBe('https://lobsterl.ink/#host=abc123');
   });
 
   it('percent-encodes peer ids that contain reserved characters', () => {
     expect(buildViewerUrl('peer id/with+chars&more=')).toBe(
-      'https://lobsterl.ink/?host=peer%20id%2Fwith%2Bchars%26more%3D'
+      'https://lobsterl.ink/#host=peer%20id%2Fwith%2Bchars%26more%3D'
     );
   });
 });

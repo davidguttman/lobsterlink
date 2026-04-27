@@ -50,12 +50,13 @@ const VIEWPORT_FOLLOW_PENDING_MS = 1500;
 let lastRequestedViewport = null;
 let viewportFollowTimer = null;
 
-// Check URL params for peer ID and debug flag
-const params = new URLSearchParams(location.search);
-const initialPeerId = params.get('host');
-const debugEnabled = params.get('debug') === 'true';
+// Check URL args for peer ID and debug flag. Hash args are preferred so
+// generated peer IDs are not sent to static-host access logs.
+const viewerArgs = parseViewerArgs(location.search, location.hash);
+const initialPeerId = viewerArgs.hostPeerId;
+const debugEnabled = viewerArgs.debugEnabled;
 
-// Debug-gated logging - silences viewer console output unless ?debug=true
+// Debug-gated logging - silences viewer console output unless debug=true is present
 const log = debugEnabled ? console.log.bind(console) : () => {};
 const warn = debugEnabled ? console.warn.bind(console) : () => {};
 const error = debugEnabled ? console.error.bind(console) : () => {};

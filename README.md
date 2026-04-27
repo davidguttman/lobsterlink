@@ -9,7 +9,7 @@ Your agent opens LinkedIn, hits a login wall, and stops. Or Twitter wants 2FA. O
 LobsterLink does something smaller. The agent hosts its tab over WebRTC and hands you a link:
 
 ```text
-https://lobsterl.ink/?host=abc123-long-uuid
+https://lobsterl.ink/#host=abc123-long-uuid
 ```
 
 You open it. You see the agent's tab, live, in any browser. You do the step. You close the tab. The agent keeps the authenticated session and goes back to work.
@@ -42,7 +42,7 @@ Once installed, ask your agent things like "share the LinkedIn tab" or "give me 
 
 ## What you see when you click a link
 
-You open `lobsterl.ink/?host=...` in a desktop browser — any browser, any OS. You see the agent's tab rendering live, and your mouse and keyboard drive it. You're not sharing your screen. The agent can't see your other tabs, your desktop, or anything else on your machine. When you close the tab, you're out.
+You open `lobsterl.ink/#host=...` in a desktop browser — any browser, any OS. You see the agent's tab rendering live, and your mouse and keyboard drive it. You're not sharing your screen. The agent can't see your other tabs, your desktop, or anything else on your machine. When you close the tab, you're out.
 
 Mobile and tablet work for viewing, but keyboard handling is rough right now — the on-screen keyboard doesn't reliably pop up when you'd expect. Use a laptop or desktop for anything involving typing.
 
@@ -70,7 +70,7 @@ Open the bridge page: `chrome-extension://<extension-id>/bridge.html`.
 
 The bridge is a regular HTML page running in extension context. It has a numbered step list written for agents, with live status indicators next to each step — pick the target tab, start hosting, read the peer ID and viewer URL from the bridge fields, then keep the hosted tab active. `Start Host` auto-focuses the hosted tab; the focus step is required, not optional, because CDP screencast stalls when the hosted tab is backgrounded, so the focus indicator reports `Active` vs `Needs Focus` and must be `Active` for the duration of the session.
 
-The bridge page is the source of truth for the current host ID and viewer URL. Host state is persisted by the background worker, so if the bridge is no longer frontmost you can reopen `bridge.html` and the `Current Peer ID` and `Viewer URL` fields will still show the active session. Do not read the host ID off any host-tab overlay — treat the bridge fields as authoritative. Return `https://lobsterl.ink/?host=<id>` once the peer ID is visible on the bridge and the hosted tab is active.
+The bridge page is the source of truth for the current host ID and viewer URL. Host state is persisted by the background worker, so if the bridge is no longer frontmost you can reopen `bridge.html` and the `Current Peer ID` and `Viewer URL` fields will still show the active session. Do not read the host ID off any host-tab overlay — treat the bridge fields as authoritative. Return `https://lobsterl.ink/#host=<id>` once the peer ID is visible on the bridge and the hosted tab is active.
 
 If your automation tooling blocks `chrome-extension://` navigation, open the bridge via CDP target creation instead.
 

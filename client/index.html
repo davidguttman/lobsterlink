@@ -197,8 +197,18 @@
 <body>
   <script>
     (function () {
-      var host = new URLSearchParams(location.search).get('host');
-      if (host) location.replace('/viewer/' + location.search);
+      function readParams(value) {
+        return new URLSearchParams(String(value || '').replace(/^[?#]/, ''));
+      }
+
+      var queryParams = readParams(location.search);
+      var hashParams = readParams(location.hash);
+      var params = new URLSearchParams(queryParams);
+      hashParams.forEach(function (value, key) {
+        params.set(key, value);
+      });
+
+      if (params.get('host')) location.replace('/viewer/#' + params.toString());
     })();
   </script>
   <div class="landing-inner">
@@ -214,7 +224,7 @@
       </li>
       <li>
         <span class="step-num">2</span>
-        <span class="step-text">It sends you a <code>lobsterl.ink/?host=…</code> link.</span>
+        <span class="step-text">It sends you a <code>lobsterl.ink/#host=…</code> link.</span>
       </li>
       <li>
         <span class="step-num">3</span>

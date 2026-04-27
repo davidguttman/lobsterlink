@@ -7,7 +7,7 @@ running LobsterLink host without installing the extension.
 ## Files
 
 - `viewer.js` — shared viewer logic used by both the extension and hosted client
-- `viewer/index.html` — hosted viewer entrypoint with page metadata and the no-`?host=` redirect
+- `viewer/index.html` — hosted viewer entrypoint with page metadata and the query-to-hash redirect
 - `lib/peerjs.min.js` — PeerJS client library
 
 ## Serving
@@ -24,10 +24,10 @@ python3 -m http.server --directory client 8000
 
 ## Usage
 
-Open the deployed URL and paste a host peer ID, or pass it in the query string:
+Open the deployed URL and paste a host peer ID, or pass it in the URL fragment:
 
 ```
-https://lobsterl.ink/?host=<host-peer-id>
+https://lobsterl.ink/#host=<host-peer-id>
 ```
 
 The page connects to the LobsterLink host over WebRTC via PeerJS and renders the shared

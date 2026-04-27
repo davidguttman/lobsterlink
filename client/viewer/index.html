@@ -250,9 +250,25 @@
   </div>
   <script src="../lib/peerjs.min.js"></script>
   <script>
-    if (!new URLSearchParams(window.location.search).get('host')) {
+    (function () {
+      function readParams(value) {
+        return new URLSearchParams(String(value || '').replace(/^[?#]/, ''));
+      }
+
+      var queryParams = readParams(location.search);
+      var hashParams = readParams(location.hash);
+      var params = new URLSearchParams(queryParams);
+      hashParams.forEach(function (value, key) {
+        params.set(key, value);
+      });
+
+      if (params.get('host')) {
+        if (location.search) location.replace('/viewer/#' + params.toString());
+        return;
+      }
+
       window.location = '/';
-    }
+    })();
   </script>
   <script src="../lib/viewer-utils.js"></script>
   <script src="../viewer.js"></script>
