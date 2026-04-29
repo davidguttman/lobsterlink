@@ -107,6 +107,25 @@
       user-select: none;
     }
 
+    .mobile-keyboard-input {
+      position: fixed;
+      left: 0;
+      bottom: 0;
+      width: 1px;
+      height: 1px;
+      opacity: 0.01;
+      border: 0;
+      outline: none;
+      padding: 0;
+      margin: 0;
+      resize: none;
+      pointer-events: none;
+      background: transparent;
+      color: transparent;
+      caret-color: transparent;
+      z-index: -1;
+    }
+
     .mobile-paste-sheet[hidden] { display: none; }
     .mobile-paste-sheet {
       position: absolute;
@@ -207,6 +226,7 @@
         padding-right: calc(6px + env(safe-area-inset-right, 0px));
       }
 
+      #btn-mobile-keyboard,
       #btn-mobile-paste {
         display: flex;
       }
@@ -275,12 +295,14 @@
       <option value="1280x720">1280x720</option>
       <option value="1024x768">1024x768</option>
     </select>
-    <button class="nav-btn mobile-only" id="btn-mobile-paste" title="Paste to remote">Paste</button>
+    <button class="nav-btn mobile-only" id="btn-mobile-keyboard" title="Open mobile keyboard" aria-label="Open mobile keyboard">⌨</button>
+    <button class="nav-btn mobile-only" id="btn-mobile-paste" title="Paste to remote" aria-label="Paste text to remote browser">Paste</button>
     <span id="connection-status">Disconnected</span>
   </div>
 
   <div id="video-container">
     <video id="remote-video" autoplay playsinline muted></video>
+    <textarea id="mobile-keyboard-input" class="mobile-keyboard-input" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Mobile keyboard text bridge"></textarea>
     <div id="mobile-paste-sheet" class="mobile-paste-sheet" role="dialog" aria-modal="true" aria-labelledby="mobile-paste-title" hidden>
       <div class="mobile-paste-panel">
         <div id="mobile-paste-title" class="mobile-paste-title">Paste to remote</div>

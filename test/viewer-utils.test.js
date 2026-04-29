@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   applyHostStoppedState,
   createMobilePasteForwardState,
@@ -12,6 +13,8 @@ import {
   resetMobilePasteForwardState
 } from '../lib/viewer-utils.js';
 import * as hostedViewerUtils from '../client/lib/viewer-utils.js';
+
+const viewerHtmlPaths = ['client/viewer/index.html', 'viewer.html'];
 
 describe('diffMobileKeyboardText', () => {
   it('returns empty strings when nothing changed', () => {
@@ -300,5 +303,28 @@ describe('mobile paste forwarding', () => {
       shouldClearLocalText: true,
       shouldCloseSheet: false
     });
+  });
+});
+
+describe('mobile viewer controls', () => {
+  it.each(viewerHtmlPaths)('%s exposes separate mobile keyboard and paste controls', (htmlPath) => {
+    const html = readFileSync(htmlPath, 'utf8');
+
+    expect(html).toContain('id="btn-mobile-keyboard"');
+    expect(html).toContain('id="btn-mobile-paste"');
+    expect(html).toContain('id="mobile-keyboard-input"');
+    expect(html).toContain('id="mobile-paste-input"');
+    expect(html).toMatch(/id="btn-mobile-keyboard"[^>]*aria-label="Open mobile keyboard"/);
+    expect(html).toMatch(/id="btn-mobile-paste"[^>]*aria-label="Paste text to remote browser"/);
+  });
+
+  it('wires the mobile keyboard separately from the paste sheet', () => {
+    const source = readFileSync('client/viewer.js', 'utf8');
+
+    expect(source).toContain("document.getElementById('btn-mobile-keyboard')");
+    expect(source).toContain("document.getElementById('mobile-keyboard-input')");
+    expect(source).toContain("mobileKeyboardInput.addEventListener('beforeinput'");
+    expect(source).toContain('diffMobileKeyboardText(previousText, nextText)');
+    expect(source).toContain('openMobilePasteSheet()');
   });
 });

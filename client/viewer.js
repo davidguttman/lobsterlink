@@ -11,6 +11,8 @@ const statusEl = document.getElementById('connection-status');
 const urlBar = document.getElementById('url-bar');
 const tabSelect = document.getElementById('tab-select');
 const debugPanel = document.getElementById('debug-panel');
+const mobileKeyboardButton = document.getElementById('btn-mobile-keyboard');
+const mobileKeyboardInput = document.getElementById('mobile-keyboard-input');
 const mobilePasteButton = document.getElementById('btn-mobile-paste');
 const mobilePasteSheet = document.getElementById('mobile-paste-sheet');
 const mobilePasteInput = document.getElementById('mobile-paste-input');
@@ -22,6 +24,9 @@ let mediaCall = null;
 let remoteViewport = { width: 1920, height: 1080 };
 let currentTabId = null;
 let hostMetrics = null;
+let isMobileInputMode = false;
+let lastMobileKeyboardValue = '';
+let mobileKeyboardRefocusPending = false;
 let mobilePasteForwardState = createMobilePasteForwardState();
 
 // --- Reconnect state ---
@@ -545,7 +550,36 @@ async function writeClipboardText(text) {
 }
 
 function focusVideoForInput() {
-  video.focus();
+  if (!isMobileInputMode) {
+    video.focus();
+  }
+}
+
+function focusMobileKeyboardInput() {
+  if (!mobileKeyboardInput) return;
+  isMobileInputMode = true;
+  mobileKeyboardInput.focus({ preventScroll: true });
+  try {
+    const len = (mobileKeyboardInput.value || '').length;
+    mobileKeyboardInput.setSelectionRange(len, len);
+  } catch (e) {}
+}
+
+function resetMobileKeyboardInput() {
+  if (mobileKeyboardInput) {
+    mobileKeyboardInput.value = '';
+  }
+  lastMobileKeyboardValue = '';
+}
+
+function maintainMobileKeyboardFocus() {
+  if (!isMobileInputMode) return;
+  mobileKeyboardRefocusPending = true;
+  requestAnimationFrame(() => {
+    if (!mobileKeyboardRefocusPending) return;
+    focusMobileKeyboardInput();
+    mobileKeyboardRefocusPending = false;
+  });
 }
 
 function clearMobilePasteInput() {
@@ -642,6 +676,63 @@ document.getElementById('viewport-select').addEventListener('change', (e) => {
   // Reset to label
   e.target.value = '';
 });
+
+
+if (mobileKeyboardButton && mobileKeyboardInput) {
+  mobileKeyboardButton.addEventListener('click', (e) => {
+    e.preventDefault();
+    resetMobileKeyboardInput();
+    focusMobileKeyboardInput();
+  });
+
+  mobileKeyboardInput.addEventListener('focus', () => {
+    isMobileInputMode = true;
+    mobileKeyboardRefocusPending = false;
+    lastMobileKeyboardValue = mobileKeyboardInput.value || '';
+  });
+
+  mobileKeyboardInput.addEventListener('blur', () => {
+    setTimeout(() => {
+      if (mobileKeyboardRefocusPending) return;
+      isMobileInputMode = false;
+      resetMobileKeyboardInput();
+    }, 0);
+  });
+
+  mobileKeyboardInput.addEventListener('beforeinput', (e) => {
+    if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
+      e.preventDefault();
+      e.stopPropagation();
+      sendKeyTap('Enter', 'Enter', 13);
+    }
+  });
+
+  mobileKeyboardInput.addEventListener('input', (e) => {
+    if (e.isComposing) return;
+    const previousText = lastMobileKeyboardValue;
+    const nextText = mobileKeyboardInput.value;
+    const { removedText, insertedText } = diffMobileKeyboardText(previousText, nextText);
+
+    if (removedText.length > 0) {
+      const deleteKey = e.inputType === 'deleteContentForward'
+        ? ['Delete', 'Delete', 46]
+        : ['Backspace', 'Backspace', 8];
+      for (let i = 0; i < removedText.length; i++) {
+        sendKeyTap(...deleteKey);
+      }
+    }
+
+    if (insertedText.length > 0) {
+      sendInput({
+        type: 'clipboard',
+        action: 'pasteText',
+        text: insertedText
+      });
+    }
+
+    lastMobileKeyboardValue = mobileKeyboardInput.value;
+  });
+}
 
 if (mobilePasteButton && mobilePasteSheet && mobilePasteInput && mobilePasteCancel) {
   syncMobilePasteButtonState(false);
@@ -854,7 +945,11 @@ video.addEventListener('mousedown', (e) => {
   if (shouldIgnoreMouseEvent()) return;
 
   preventDefaultIfPossible(e);
-  focusVideoForInput();
+  if (isMobileInputMode) {
+    maintainMobileKeyboardFocus();
+  } else {
+    focusVideoForInput();
+  }
   dragActive = true;
   const { x, y } = mapCoords(e);
   sendInput({
@@ -927,6 +1022,9 @@ video.addEventListener('touchstart', (e) => {
   }
 
   preventDefaultIfPossible(e);
+  if (isMobileInputMode) {
+    maintainMobileKeyboardFocus();
+  }
   const touch = e.touches[0];
   suppressMouseUntil = performance.now() + TOUCH_MOUSE_SUPPRESS_MS;
   activeTouchGesture = {
@@ -988,6 +1086,9 @@ video.addEventListener('touchend', (e) => {
   const isTap = !activeTouchGesture.moved && Math.hypot(totalDx, totalDy) < TOUCH_TAP_MAX_DISTANCE;
 
   if (isTap) {
+    if (isMobileInputMode) {
+      maintainMobileKeyboardFocus();
+    }
     const { x, y } = mapCoords(touch);
     sendInput({
       type: 'mouse',
@@ -1030,8 +1131,8 @@ video.addEventListener('contextmenu', (e) => e.preventDefault());
 video.setAttribute('tabindex', '0');
 
 function isNavInput(el) {
-  return el && (el.id === 'url-bar' || el.id === 'overlay-peer-input' || el.id === 'mobile-paste-input' ||
-    el.tagName === 'SELECT');
+  return el && (el.id === 'url-bar' || el.id === 'overlay-peer-input' || el.id === 'mobile-keyboard-input' ||
+    el.id === 'mobile-paste-input' || el.tagName === 'SELECT');
 }
 
 function isClipboardShortcutKey(e) {
@@ -1117,7 +1218,11 @@ document.addEventListener('cut', (e) => {
 
 video.addEventListener('click', () => {
   if (shouldIgnoreMouseEvent()) return;
-  focusVideoForInput();
+  if (isMobileInputMode) {
+    maintainMobileKeyboardFocus();
+  } else {
+    focusVideoForInput();
+  }
 });
 video.addEventListener('loadedmetadata', () => {
   layoutVideo();
