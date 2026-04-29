@@ -48,6 +48,9 @@ let tabListenersInstalled = false;
 let recentDiagnostics = [];
 let lastDiagnosticError = null;
 let remoteLoggingEnabled = false;
+const OPENER_AUTO_FOLLOW_RETRY_MS = 300;
+const pendingOpenerAutoFollowTabs = new Map();
+const runSerializedSwitch = createSwitchSerializer();
 
 // Load opt-in remote logging flag from storage (default: off)
 chrome.storage.local.get({ lobsterlinkDebugLoggingEnabled: false }, (result) => {
@@ -989,7 +992,166 @@ function onTabActivated(activeInfo) {
   });
 }
 
+
+function clearPendingOpenerAutoFollowTab(tabId) {
+  const pending = pendingOpenerAutoFollowTabs.get(tabId);
+  if (pending?.timer) {
+    clearTimeout(pending.timer);
+  }
+  pendingOpenerAutoFollowTabs.delete(tabId);
+}
+
+function clearPendingOpenerAutoFollowTabs() {
+  for (const tabId of pendingOpenerAutoFollowTabs.keys()) {
+    clearPendingOpenerAutoFollowTab(tabId);
+  }
+}
+
+function validatePendingOpenerAutoFollowSwitch(tabId, pending) {
+  const current = pendingOpenerAutoFollowTabs.get(tabId);
+  if (current !== pending) {
+    logDiagnostic('opener_auto_follow_cancelled', {
+      tabId,
+      reason: 'pending-entry-replaced'
+    });
+    return false;
+  }
+
+  if (!hostState.hosting || !hostState.viewerConnected) {
+    logDiagnostic('opener_auto_follow_cancelled', {
+      tabId,
+      reason: 'host-not-active'
+    });
+    clearPendingOpenerAutoFollowTab(tabId);
+    return false;
+  }
+
+  if (pending.openerTabId !== hostState.capturedTabId) {
+    logDiagnostic('opener_auto_follow_cancelled', {
+      tabId,
+      reason: 'opener-no-longer-captured',
+      openerTabId: pending.openerTabId || null,
+      capturedTabId: hostState.capturedTabId || null
+    });
+    clearPendingOpenerAutoFollowTab(tabId);
+    return false;
+  }
+
+  return true;
+}
+
+function schedulePendingOpenerAutoFollow(tabId, delayMs = OPENER_AUTO_FOLLOW_RETRY_MS) {
+  const pending = pendingOpenerAutoFollowTabs.get(tabId);
+  if (!pending) return;
+  if (pending.timer) {
+    clearTimeout(pending.timer);
+  }
+  pending.timer = setTimeout(() => {
+    const current = pendingOpenerAutoFollowTabs.get(tabId);
+    if (current) current.timer = null;
+    attemptPendingOpenerAutoFollow(tabId).catch((e) => {
+      warn('[LOBSTERLINK:bg] pending opener auto-follow failed:', e.message || e);
+      clearPendingOpenerAutoFollowTab(tabId);
+    });
+  }, delayMs);
+}
+
+async function attemptPendingOpenerAutoFollow(tabId) {
+  if (!hostState.hosting || !hostState.viewerConnected) {
+    clearPendingOpenerAutoFollowTab(tabId);
+    return;
+  }
+
+  const pending = pendingOpenerAutoFollowTabs.get(tabId);
+  if (!pending || pending.inFlight) return;
+
+  if (pending.openerTabId !== hostState.capturedTabId) {
+    logDiagnostic('opener_auto_follow_cancelled', {
+      tabId,
+      reason: 'opener-no-longer-captured',
+      openerTabId: pending.openerTabId || null,
+      capturedTabId: hostState.capturedTabId || null
+    });
+    clearPendingOpenerAutoFollowTab(tabId);
+    return;
+  }
+
+  pending.inFlight = true;
+  pendingOpenerAutoFollowTabs.set(tabId, pending);
+
+  let tab = null;
+  try {
+    tab = await chrome.tabs.get(tabId);
+  } catch (e) {
+    logDiagnostic('opener_auto_follow_cancelled', {
+      tabId,
+      reason: 'missing-tab',
+      error: e.message || String(e)
+    });
+    clearPendingOpenerAutoFollowTab(tabId);
+    return;
+  }
+
+  if (pendingOpenerAutoFollowTabs.get(tabId) !== pending) return;
+
+  const decision = getOpenerAutoFollowDecision(tab, pending, {
+    capturedTabId: hostState.capturedTabId
+  });
+  logDiagnostic('opener_auto_follow_decision', {
+    tabId,
+    action: decision.action,
+    reason: decision.reason,
+    attempts: pending.attempts || 0,
+    url: tab.url || '',
+    pendingUrl: tab.pendingUrl || ''
+  });
+
+  if (decision.action === 'switch') {
+    await switchTab(tabId, {
+      beforeSwitch: () => validatePendingOpenerAutoFollowSwitch(tabId, pending)
+    });
+    if (pendingOpenerAutoFollowTabs.get(tabId) === pending) {
+      clearPendingOpenerAutoFollowTab(tabId);
+    }
+    return;
+  }
+
+  if (decision.action === 'cancel') {
+    clearPendingOpenerAutoFollowTab(tabId);
+    return;
+  }
+
+  if (decision.action === 'wait') {
+    pending.inFlight = false;
+    pending.attempts = (pending.attempts || 0) + 1;
+    pendingOpenerAutoFollowTabs.set(tabId, pending);
+    schedulePendingOpenerAutoFollow(tabId);
+  }
+}
+
+function trackOpenerAutoFollowTab(tab) {
+  if (!tab?.id) return;
+  const pending = {
+    tabId: tab.id,
+    openerTabId: tab.openerTabId,
+    attempts: 0,
+    createdAt: Date.now(),
+    timer: null
+  };
+  pendingOpenerAutoFollowTabs.set(tab.id, pending);
+  logDiagnostic('opener_auto_follow_pending', {
+    tabId: tab.id,
+    openerTabId: tab.openerTabId || null,
+    url: tab.url || '',
+    pendingUrl: tab.pendingUrl || ''
+  });
+  schedulePendingOpenerAutoFollow(tab.id, OPENER_AUTO_FOLLOW_RETRY_MS);
+}
+
 function onTabUpdated(tabId, changeInfo, tab) {
+  if (pendingOpenerAutoFollowTabs.has(tabId) && (changeInfo.url || changeInfo.status || changeInfo.title)) {
+    schedulePendingOpenerAutoFollow(tabId, 0);
+  }
   if (!hostState.hosting || !hostState.viewerConnected) return;
   if (tabId === hostState.capturedTabId) {
     if (changeInfo.status === 'loading') {
@@ -1018,6 +1180,7 @@ function onTabUpdated(tabId, changeInfo, tab) {
 }
 
 function onTabRemoved(tabId) {
+  clearPendingOpenerAutoFollowTab(tabId);
   if (!hostState.hosting || !hostState.viewerConnected) return;
   logDiagnostic('tab_removed', {
     tabId,
@@ -1045,8 +1208,8 @@ function onTabCreated(tab) {
   });
   sendTabListToViewer();
   if (tab && tab.openerTabId === hostState.capturedTabId) {
-    log('[LOBSTERLINK:bg] New tab opened from captured tab, auto-switching to', tab.id);
-    setTimeout(() => switchTab(tab.id), 300);
+    log('[LOBSTERLINK:bg] New tab opened from captured tab, tracking for auto-follow', tab.id);
+    trackOpenerAutoFollowTab(tab);
   }
 }
 
@@ -1060,6 +1223,7 @@ function setupTabListeners() {
 }
 
 function teardownTabListeners() {
+  clearPendingOpenerAutoFollowTabs();
   if (!tabListenersInstalled) return;
   chrome.tabs.onActivated.removeListener(onTabActivated);
   chrome.tabs.onUpdated.removeListener(onTabUpdated);
@@ -1070,17 +1234,10 @@ function teardownTabListeners() {
 
 async function sendTabListToViewer() {
   try {
-    const tabs = (await chrome.tabs.query({ currentWindow: true }))
-      .filter((tab) => !isForbiddenTab(tab));
+    const tabs = await chrome.tabs.query(getViewerTabListQueryInfo());
     sendToViewer({
       type: 'tabList',
-      tabs: tabs.map(t => ({
-        id: t.id,
-        title: t.title || '',
-        url: t.url || '',
-        favIconUrl: t.favIconUrl || '',
-        active: t.id === hostState.capturedTabId
-      }))
+      tabs: buildViewerTabList(tabs, hostState.capturedTabId)
     });
   } catch (e) {
     error('[LOBSTERLINK:bg] Failed to send tab list:', e);
@@ -1210,18 +1367,20 @@ async function setHostViewport(width, height) {
     width, 'x', height, '| capture:', capture.width, 'x', capture.height);
 }
 
-async function switchTab(tabId) {
-  if (!tabId) return;
+async function switchTab(tabId, options = {}) {
+  if (!tabId) return false;
+  return runSerializedSwitch({
+    switchFn: () => switchTabUnlocked(tabId, options)
+  });
+}
+
+async function switchTabUnlocked(tabId, options = {}) {
   const previousTabId = hostState.capturedTabId;
   logDiagnostic('switch_tab_requested', {
     nextTabId: tabId,
     previousTabId,
     mode: hostState.captureMode
   });
-
-  if (previousTabId && previousTabId !== tabId) {
-    sendHostOverlay(previousTabId, null).catch(() => {});
-  }
 
   // Block switching to forbidden tabs
   try {
@@ -1232,12 +1391,21 @@ async function switchTab(tabId) {
         tabId,
         url: tab.url || ''
       });
-      return;
+      return false;
     }
   } catch (e) {
     warn('[LOBSTERLINK:bg] switchTab: tab not found', tabId);
     logDiagnostic('switch_tab_missing', { tabId, error: e.message || String(e) });
-    return;
+    return false;
+  }
+
+  if (typeof options.beforeSwitch === 'function') {
+    const shouldSwitch = await options.beforeSwitch();
+    if (!shouldSwitch) return false;
+  }
+
+  if (previousTabId && previousTabId !== tabId) {
+    sendHostOverlay(previousTabId, null).catch(() => {});
   }
 
   // Stop screencast on old tab
@@ -1285,6 +1453,7 @@ async function switchTab(tabId) {
   await sendTabListToViewer();
   await sendHostMetricsToViewer(true);
   logDiagnostic('switch_tab_completed', { tabId });
+  return true;
 }
 
 async function createNewTab(url) {
