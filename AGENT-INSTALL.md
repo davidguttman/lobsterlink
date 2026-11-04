@@ -80,6 +80,8 @@ If CDP and `Preferences` disagree about what is active, trust CDP for active run
   - `--disable-extensions-except=<ABSOLUTE_PATH_TO_DURABLE_LOBSTERLINK_DIRECTORY>`
   - `--load-extension=<ABSOLUTE_PATH_TO_DURABLE_LOBSTERLINK_DIRECTORY>`
 
+Branded Google Chrome (Chrome 137 and later) ignores both flags. The process logs `--load-extension is not allowed in Google Chrome, ignoring.` and the extension does not load. The browser these flags are applied to must be Chromium or Chrome for Testing. Playwright's bundled Chromium accepts them. Loading unpacked from `chrome://extensions` still works in branded Chrome, but that is not this config path.
+
 ### Flag merge rules
 
 Do not blindly replace existing extension flags.
@@ -123,9 +125,9 @@ Do not blindly replace existing extension flags.
     - `--load-extension=...<ABSOLUTE_PATH_TO_DURABLE_LOBSTERLINK_DIRECTORY>...`
 12. Verify the extension is actually loaded. Use CDP `/json/list` as primary evidence.
 13. Discover the extension ID. Use these sources in this order:
-    - CDP `/json/list` targets with URLs starting `chrome-extension://`
-    - isolated profile `Preferences` as fallback only
-    - `chrome://extensions` in the isolated profile if needed
+    - CDP `/json/list`. LobsterLink's manifest service worker is `background.js`, so the target to read is the `service_worker` whose `url` is `chrome-extension://<id>/background.js`. The `<id>` in that URL is the extension ID. The target `title` is `Service Worker chrome-extension://<id>/background.js`, not "LobsterLink". Other loaded extensions, including Chromium component extensions, can also register `background.js`. When more than one matches, attach to each worker and evaluate `chrome.runtime.getManifest().name`, and keep the id that returns `LobsterLink`. The worker is missing from `/json/list` while idle; it is present right after launch, and opening the bridge wakes it. Opening `chrome-extension://<id>/bridge.html` and reading the page title is the direct check: LobsterLink's bridge title is `LobsterLink Bridge`.
+    - isolated profile `Preferences` as fallback only. For an unpacked install, `extensions.settings[<id>].path` is the directory you configured. Unpacked entries do not always store the manifest name.
+    - `chrome://extensions` in the isolated profile if needed. With Developer mode on, the LobsterLink card shows its id.
 14. If multiple LobsterLink extension IDs or paths are present:
     - prefer the install whose path matches the configured durable path
     - require a live CDP target for the install you choose
@@ -176,13 +178,26 @@ If you're not running in OpenClaw, the shape is the same:
 1. Download and unzip the LobsterLink repo.
 2. Review the extension for suspicious or harmful behavior.
 3. Copy it into a durable local path before launching the browser.
-4. Launch Chromium with:
+4. Launch Chromium or Chrome for Testing, not branded Google Chrome, with:
    - `--disable-extensions-except=<absolute-path-to-durable-directory>`
    - `--load-extension=<absolute-path-to-durable-directory>`
+   - Branded Google Chrome 137 and later ignores both flags and logs `--load-extension is not allowed in Google Chrome, ignoring.` Playwright's bundled Chromium is a valid Chromium for this step.
 5. Verify the live Chromium command line includes those flags.
-6. Verify the extension loaded by checking CDP `/json/list` for the extension service worker or other extension targets.
+6. Verify the extension loaded. In CDP `/json/list`, LobsterLink is the `service_worker` at `chrome-extension://<id>/background.js`. If several `background.js` workers are listed, keep the one whose `chrome.runtime.getManifest().name` is `LobsterLink`. The same check is spelled out in the OpenClaw discovery step above.
 7. Report the extension ID and full bridge URL back to the human. The most reliable source is CDP `/json/list`.
 
 ## After install
 
 Open the recorded bridge URL `chrome-extension://<extension-id>/bridge.html` and follow the numbered Agent Steps on that page. The bridge has everything you need: target tab picker, start/stop host, current peer ID, viewer URL, show-hosted-tab button. The bridge page is the source of truth for the peer ID and viewer URL. Read them from the bridge fields, not from any overlay on the hosted tab, and reopen `bridge.html` to recover current state if `Start Host` leaves it in the background. Record the full bridge URL in the LobsterLink skill during install so future runs can open it directly without rediscovering the extension ID.
+
+If the tool you are using cannot navigate to `chrome-extension://` URLs, create the bridge target with PUT. GET is rejected with HTTP 405 (`Using unsafe HTTP verb GET to invoke /json/new. This action supports only PUT verb.`):
+
+```bash
+curl -X PUT "http://127.0.0.1:<remote-debugging-port>/json/new?chrome-extension://<extension-id>/bridge.html"
+```
+
+Do not call `/json/new?url=chrome-extension://...`. That leaves the new target on `about:blank`. After the PUT, confirm `/json/list` shows the new page with title `LobsterLink Bridge`.
+
+A Playwright page in the same browser context can open it with `newPage()` then `goto(bridgeUrl)`. The CDP equivalent on the browser session is `Target.createTarget` with `url` set to the bridge URL.
+
+A host lasts 15 minutes from start. The bridge status pill counts down (`Hosting — expires in mm:ss`). At the deadline the extension stops the share. Start Host again for a new peer ID.

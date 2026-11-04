@@ -66,7 +66,7 @@ Before replying, confirm all relevant items:
 
 ## Notes
 
-- Some browser tools block `chrome-extension://` navigation. If that happens, create the bridge target through CDP instead.
+- Some browser tools block `chrome-extension://` navigation. Open the bridge with `PUT /json/new?chrome-extension://<extension-id>/bridge.html` on the DevTools port. GET returns HTTP 405 and does not open the page. Do not pass the URL as a `url=` query parameter. Playwright `newPage()` plus `goto(bridgeUrl)` also works. See the repo README for the exact command.
 - `profile="user"` vs `profile="openclaw"` is a real failure mode in OpenClaw. If the observed tabs/state do not match expectations, first confirm you are attached to the isolated `openclaw` profile before debugging anything else.
 - A visible popup is not proof that hosting actually started.
 - Return concrete evidence, not assumptions.
